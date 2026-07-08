@@ -1,0 +1,410 @@
+from rest_framework import permissions, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.response import Response
+
+from televisores.models import Televisor
+from users.permissions import CanOperate
+from televisores.portal.client import (
+    PortalClient,
+    PortalDispositivoNoExiste,
+    PortalError,
+)
+
+from .imports import importar_televisores
+
+
+def client_ip(request) -> str | None:
+    """IP del cliente, considerando un posible proxy inverso (X-Forwarded-For)."""
+    xff = request.META.get('HTTP_X_FORWARDED_FOR')
+    if xff:
+        return xff.split(',')[0].strip()
+    return request.META.get('REMOTE_ADDR')
+from .serializers import (
+    BulkSyncJobSerializer,
+    PinCodeUsadoSerializer,
+    SyncJobSerializer,
+    TelevisorSerializer,
+)
+
+
+class TelevisorViewSet(viewsets.ModelViewSet):
+    """CRUD de televisores + acciones contra el portal WhaleTV.
+
+    - list / retrieve / create / update / destroy estándar.
+    - `?search=` busca por MAC, serial o número de crédito (SearchFilter global).
+    - `importar/`        carga masiva desde CSV/XLSX.
+    - `estado-portal/`   (GET)  lee el estado real del dispositivo en el portal.
+    - `habilitar/`       (POST) desbloquea el dispositivo en el portal (unlock).
+    - `inhabilitar/`     (POST) marca inhabilitado localmente (ver nota).
+    """
+
+    queryset = Televisor.objects.all()
+    serializer_class = TelevisorSerializer
+    search_fields = ['mac_address', 'serial_number', 'numero_credito']
+    ordering_fields = ['mac_address', 'serial_number', 'created_at']
+
+    # Acciones de escritura/gestión reservadas a Operador y Administrador.
+    # El resto (consultas, validación, pines, reportes) queda para cualquier
+    # usuario autenticado, incluido el rol Consulta.
+    OPERATOR_ACTIONS = frozenset({
+        'create',
+        'update',
+        'partial_update',
+        'destroy',
+        'importar',        # Enrolar Televisores (masivo)
+        'enrolar_estado',  # Enrolar Estado (masivo)
+        'estado',          # Habilitar / Inhabilitar (sincroniza al portal)
+    })
+
+    def get_permissions(self):
+        if self.action in self.OPERATOR_ACTIONS:
+            return [permissions.IsAuthenticated(), CanOperate()]
+        return [permissions.IsAuthenticated()]
+
+    @action(
+        detail=False,
+        methods=['post'],
+        url_path='importar',
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def importar(self, request):
+        archivo = request.FILES.get('archivo')
+        if not archivo:
+            return Response(
+                {'detail': 'Debes adjuntar un archivo en el campo "archivo".'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        resultado = importar_televisores(archivo.name, archivo.read())
+        return Response(resultado, status=status.HTTP_200_OK)
+
+    # ------------------------------------------------------------------
+    # Integración con el portal WhaleTV (Device Lock API)
+    # ------------------------------------------------------------------
+    def _leer_estado_portal(self, tv: Televisor) -> Response | dict:
+        try:
+            data = PortalClient().get_status(tv.eui64_portal)
+        except PortalDispositivoNoExiste as e:
+            return Response({'detail': str(e)}, status=status.HTTP_404_NOT_FOUND)
+        except PortalError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_502_BAD_GATEWAY)
+        return {
+            'eui64': tv.eui64_portal,
+            'lock_status': data['lockStatus'],       # 0=desbloqueado, 1=bloqueado
+            'payment_status': data['paymentStatus'],  # 0=en progreso, 1=completado
+            'clear_status': data['clearStatus'],      # 0=normal, 1=limpiando
+            'inhabilitado_portal': data['lockStatus'] == 1,
+        }
+
+    @action(detail=True, methods=['get'], url_path='estado-portal')
+    def estado_portal(self, request, pk=None):
+        resultado = self._leer_estado_portal(self.get_object())
+        if isinstance(resultado, Response):
+            return resultado
+        return Response(resultado)
+
+    @action(detail=True, methods=['get'])
+    def validar(self, request, pk=None):
+        """Valida (dry-run) el estado del TV: lee el portal y lo compara con el
+        estado local, sin modificar nada."""
+        tv = self.get_object()
+        resultado = self._leer_estado_portal(tv)
+        if isinstance(resultado, Response):
+            return resultado
+
+        remoto = bool(resultado['inhabilitado_portal'])
+        local = bool(tv.inhabilitado)
+        coincide = remoto == local
+        txt = 'Inhabilitado' if remoto else 'Habilitado'
+        txt_local = 'Inhabilitado' if local else 'Habilitado'
+        mensaje = (
+            f'El televisor está {txt} en el portal, igual que en la app. '
+            'No hay nada que sincronizar.'
+            if coincide
+            else f'El televisor está {txt} en el portal, pero {txt_local} en la app. '
+            'Conviene sincronizar para que coincidan.'
+        )
+        return Response({
+            'coincide': coincide,
+            'remoto_inhabilitado': remoto,
+            'local_inhabilitado': local,
+            'mensaje': mensaje,
+        })
+
+    @action(detail=False, methods=['post'], url_path='validar-masivo')
+    def validar_masivo(self, request):
+        """Lanza una validación masiva (dry-run) de todos los televisores."""
+        from televisores.bulk_sync import lanzar_validacion_masiva
+
+        job = lanzar_validacion_masiva()
+        if job is None:
+            return Response(
+                {'detail': 'No hay televisores para validar.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(
+            {'job': job.pk, 'total': job.total}, status=status.HTTP_202_ACCEPTED
+        )
+
+    @action(
+        detail=False,
+        methods=['get'],
+        url_path=r'validar-masivo/(?P<job_id>[0-9]+)',
+    )
+    def validar_masivo_status(self, request, job_id=None):
+        """Progreso/resultado de una validación masiva (polling)."""
+        from televisores.models import BulkSyncJob
+
+        try:
+            job = BulkSyncJob.objects.prefetch_related('items').get(pk=job_id)
+        except BulkSyncJob.DoesNotExist:
+            return Response(
+                {'detail': 'Job no encontrado.'}, status=status.HTTP_404_NOT_FOUND
+            )
+        return Response(BulkSyncJobSerializer(job).data)
+
+    @action(detail=True, methods=['get'])
+    def pincodes(self, request, pk=None):
+        """Grupos de Pin Code disponibles del dispositivo (passCode + pinCode)."""
+        tv = self.get_object()
+        try:
+            grupos = PortalClient().get_pin_codes(tv.eui64_portal)
+        except PortalDispositivoNoExiste as e:
+            return Response({'detail': str(e)}, status=status.HTTP_404_NOT_FOUND)
+        except PortalError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response({'eui64': tv.eui64_portal, 'grupos': grupos})
+
+    @action(detail=True, methods=['post'], url_path='pincodes/usar')
+    def pincode_usar(self, request, pk=None):
+        """Obtiene el Código Pin para un Código de Acceso, lo marca como usado en
+        el portal y lo registra en la bitácora (aparece en /pincodes)."""
+        from televisores.models import PinCodeUsado
+
+        tv = self.get_object()
+        passcode = str(request.data.get('passcode', '')).strip()
+        if not passcode:
+            return Response(
+                {'detail': 'Debes enviar "passcode".'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        client = PortalClient()
+        try:
+            grupos = client.get_pin_codes(tv.eui64_portal)
+        except PortalDispositivoNoExiste as e:
+            return Response({'detail': str(e)}, status=status.HTTP_404_NOT_FOUND)
+        except PortalError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_502_BAD_GATEWAY)
+
+        grupo = next((g for g in grupos if g['passCode'] == passcode), None)
+        if grupo is None:
+            return Response(
+                {'detail': 'No hay un Código Pin disponible para ese Código de Acceso.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Marca el código como usado en el portal (no bloquea si falla).
+        try:
+            client.marcar_pincodes_usados(tv.eui64_portal, [passcode])
+        except PortalError:
+            pass
+
+        registro = PinCodeUsado.objects.create(
+            televisor=tv,
+            mac_address=tv.mac_address,
+            passcode=passcode,
+            pin_code=grupo['pinCode'],
+            usuario=request.user if request.user.is_authenticated else None,
+            ip=client_ip(request),
+        )
+        return Response({
+            'passcode': passcode,
+            'pin_code': grupo['pinCode'],
+            'creado': registro.creado,
+        })
+
+    @action(detail=True, methods=['post'])
+    def estado(self, request, pk=None):
+        """Guarda el estado local (habilitado/inhabilitado) y lanza la sync al
+        portal en segundo plano. Devuelve el id del job para hacer polling.
+
+        Body: {"inhabilitar": true|false}
+        """
+        from televisores.sync_runner import lanzar_sync_job
+
+        tv = self.get_object()
+        inhabilitar = bool(request.data.get('inhabilitar'))
+
+        # El estado local es la fuente de verdad; se guarda de inmediato (whaletv).
+        tv.inhabilitado = inhabilitar
+        tv.save(update_fields=['inhabilitado'])
+
+        job = lanzar_sync_job(
+            tv, inhabilitar, usuario=request.user, ip=client_ip(request)
+        )
+        return Response(
+            {
+                'job': job.pk,
+                'estado': job.estado,
+                'inhabilitado': tv.inhabilitado,
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    @action(
+        detail=True,
+        methods=['get'],
+        url_path=r'sync/(?P<job_id>[0-9]+)',
+    )
+    def sync_status(self, request, pk=None, job_id=None):
+        """Estado/progreso de un SyncJob (para polling desde el frontend)."""
+        from televisores.models import SyncJob
+
+        try:
+            job = SyncJob.objects.get(pk=job_id, televisor_id=pk)
+        except SyncJob.DoesNotExist:
+            return Response(
+                {'detail': 'Job no encontrado.'}, status=status.HTTP_404_NOT_FOUND
+            )
+        return Response({
+            'job': job.pk,
+            'estado': job.estado,
+            'porcentaje': job.porcentaje,
+            'finalizado': job.finalizado,
+            'error': job.error,
+            'inhabilitar': job.inhabilitar,
+        })
+
+    @action(detail=True, methods=['get'])
+    def historial(self, request, pk=None):
+        """Histórico de cambios de estado (SyncJobs) del televisor."""
+        tv = self.get_object()
+        jobs = tv.sync_jobs.all()[:50]
+        return Response(SyncJobSerializer(jobs, many=True).data)
+
+    # ------------------------------------------------------------------
+    # Registros del televisor (sincronizaciones y códigos pin usados)
+    # ------------------------------------------------------------------
+    @action(detail=True, methods=['get'])
+    def registros(self, request, pk=None):
+        """Contadores para la sección 'Registros' del detalle."""
+        from televisores.models import BulkSyncItem, BulkSyncJob, PinCodeUsado, SyncJob
+
+        tv = self.get_object()
+        sinc = (
+            SyncJob.objects.filter(televisor=tv).count()
+            + BulkSyncItem.objects.filter(
+                televisor=tv, job__modo=BulkSyncJob.SYNC
+            ).count()
+        )
+        pins = PinCodeUsado.objects.filter(televisor=tv).count()
+        return Response({'sincronizaciones': sinc, 'pincodes': pins})
+
+    @action(detail=True, methods=['get'])
+    def sincronizaciones(self, request, pk=None):
+        """Historial de sincronizaciones de ESTE televisor (paginado)."""
+        from .registros import construir_sincronizaciones
+
+        tv = self.get_object()
+        filas = construir_sincronizaciones(televisor=tv)
+        page = self.paginate_queryset(filas)
+        return self.get_paginated_response(page)
+
+    @action(detail=True, methods=['get'], url_path='pincodes-usados')
+    def pincodes_usados(self, request, pk=None):
+        """Códigos Pin usados de ESTE televisor (paginado)."""
+        from televisores.models import PinCodeUsado
+
+        tv = self.get_object()
+        qs = PinCodeUsado.objects.filter(televisor=tv)
+        page = self.paginate_queryset(qs)
+        return self.get_paginated_response(
+            PinCodeUsadoSerializer(page, many=True).data
+        )
+
+    # ------------------------------------------------------------------
+    # Enrolar Estado: cambio de estado masivo + sincronización al portal
+    # ------------------------------------------------------------------
+    @action(
+        detail=False,
+        methods=['post'],
+        url_path='enrolar-estado',
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def enrolar_estado(self, request):
+        """Importa estados (habilitado/inhabilitado) desde CSV/XLSX, fija el
+        estado local y lanza la sincronización masiva al portal en 2º plano.
+
+        Campo multipart: `archivo`. Devuelve el resumen + el id del job masivo.
+        """
+        from televisores.bulk_sync import lanzar_bulk_job
+        from televisores.estado_import import procesar_enrolar_estado
+
+        archivo = request.FILES.get('archivo')
+        if not archivo:
+            return Response(
+                {'detail': 'Debes adjuntar un archivo en el campo "archivo".'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        resumen = procesar_enrolar_estado(archivo.name, archivo.read())
+        cambiados = resumen['cambiados']
+
+        job = (
+            lanzar_bulk_job(
+                cambiados, resumen, usuario=request.user, ip=client_ip(request)
+            )
+            if cambiados
+            else None
+        )
+        return Response(
+            {
+                'job': job.pk if job else None,
+                'creados': resumen['creados'],
+                'actualizados': resumen['actualizados'],
+                'cambios': len(cambiados),
+                'errores': resumen['errores'],
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    # ------------------------------------------------------------------
+    # Exportaciones a Excel (.xlsx)
+    # ------------------------------------------------------------------
+    @action(detail=False, methods=['get'], url_path='exportar-sincronizaciones')
+    def exportar_sincronizaciones(self, request):
+        from televisores.api.exports import exportar_sincronizaciones
+        return exportar_sincronizaciones()
+
+    @action(detail=False, methods=['get'], url_path='exportar-pincodes')
+    def exportar_pincodes(self, request):
+        from televisores.api.exports import exportar_pincodes
+        return exportar_pincodes()
+
+    @action(detail=False, methods=['get'], url_path='plantilla-televisores')
+    def plantilla_televisores(self, request):
+        from televisores.api.exports import plantilla_televisores
+        return plantilla_televisores()
+
+    @action(detail=False, methods=['get'], url_path='plantilla-estados')
+    def plantilla_estados(self, request):
+        from televisores.api.exports import plantilla_estados
+        return plantilla_estados()
+
+    @action(
+        detail=False,
+        methods=['get'],
+        url_path=r'enrolar-estado/(?P<job_id>[0-9]+)',
+    )
+    def enrolar_estado_status(self, request, job_id=None):
+        """Progreso de una sincronización masiva (para polling)."""
+        from televisores.models import BulkSyncJob
+
+        try:
+            job = BulkSyncJob.objects.prefetch_related('items').get(pk=job_id)
+        except BulkSyncJob.DoesNotExist:
+            return Response(
+                {'detail': 'Job no encontrado.'}, status=status.HTTP_404_NOT_FOUND
+            )
+        return Response(BulkSyncJobSerializer(job).data)
