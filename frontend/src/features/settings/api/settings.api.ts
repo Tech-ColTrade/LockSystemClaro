@@ -18,6 +18,13 @@ export const settingsApi = {
       body: JSON.stringify(data),
     }),
 
+  /** Guarda la preferencia de color de acento en la cuenta del usuario. */
+  updateAccent: (accent: string) =>
+    apiFetch<User>(config.endpoints.me, {
+      method: 'PATCH',
+      body: JSON.stringify({ accent }),
+    }),
+
   /**
    * Cambia la contraseña. El backend revoca las sesiones anteriores y devuelve
    * un par de tokens nuevo para la sesión actual: lo guardamos para no salir.

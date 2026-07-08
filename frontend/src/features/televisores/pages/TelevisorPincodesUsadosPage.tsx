@@ -1,8 +1,23 @@
 import { useCallback } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { ArrowLeft, ChevronLeft, ChevronRight, CircleAlert } from 'lucide-react'
 import { televisoresApi } from '@/features/televisores/api/televisores.api'
-import { Paginacion } from '@/shared/components/Paginacion'
 import { usePaginatedList } from '@/shared/hooks/usePaginatedList'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+
+const PAGE_SIZE = 10
 
 function fecha(iso: string): string {
   const d = new Date(iso)
@@ -25,50 +40,102 @@ export function TelevisorPincodesUsadosPage() {
   )
   const { items, count, page, setPage, loading, error } = usePaginatedList(fetcher)
 
+  const totalPages = Math.max(1, Math.ceil(count / PAGE_SIZE))
+
   return (
-    <>
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-xl font-bold text-gray-800">
-          Códigos Pin usados{' '}
-          <span className="text-base font-normal text-gray-400">({count})</span>
-        </h2>
-        <Link to={`/televisores/${id}`} className="btn btn-ghost">
-          ← Volver al detalle
-        </Link>
+    <div className="mx-auto flex max-w-4xl flex-col gap-5">
+      {/* Encabezado */}
+      <div className="flex flex-col gap-3">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="-ml-2 w-fit text-muted-foreground"
+          render={<Link to={`/televisores/${id}`} />}
+        >
+          <ArrowLeft data-icon="inline-start" /> Volver al detalle
+        </Button>
+        <div className="flex items-center gap-3">
+          <h1 className="text-lg font-bold text-foreground">Códigos Pin usados</h1>
+          <Badge variant="secondary" className="tabular-nums">
+            {count}
+          </Badge>
+        </div>
       </div>
 
-      {error && <div className="msg msg-error">{error}</div>}
-
-      {loading ? (
-        <div className="card py-12 text-center text-gray-400">Cargando…</div>
-      ) : items.length === 0 ? (
-        <div className="card py-12 text-center text-gray-400">
-          Este televisor aún no tiene códigos pin usados.
-        </div>
-      ) : (
-        <div className="card overflow-x-auto !p-0">
-          <table className="w-full">
-            <thead>
-              <tr>
-                <th className="th">Fecha</th>
-                <th className="th">Código de Acceso</th>
-                <th className="th">Código Pin</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((p) => (
-                <tr key={p.id} className="hover:bg-gray-50">
-                  <td className="td">{fecha(p.creado)}</td>
-                  <td className="td">{p.passcode}</td>
-                  <td className="td tabular-nums">{p.pin_code}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      {error && (
+        <Alert variant="destructive">
+          <CircleAlert />
+          <AlertTitle>Ocurrió un problema</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
 
-      <Paginacion page={page} count={count} onPage={setPage} />
-    </>
+      <Card className="gap-0 overflow-hidden p-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Fecha</TableHead>
+              <TableHead>Código de Acceso</TableHead>
+              <TableHead>Código Pin</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              Array.from({ length: 8 }).map((_, i) => (
+                <TableRow key={i}>
+                  {Array.from({ length: 3 }).map((__, j) => (
+                    <TableCell key={j}>
+                      <Skeleton className="h-4 w-full max-w-36" />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            ) : items.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={3} className="h-24 text-center text-muted-foreground">
+                  Este televisor aún no tiene códigos pin usados.
+                </TableCell>
+              </TableRow>
+            ) : (
+              items.map((p) => (
+                <TableRow key={p.id}>
+                  <TableCell className="text-muted-foreground">{fecha(p.creado)}</TableCell>
+                  <TableCell className="font-mono tabular-nums">{p.passcode}</TableCell>
+                  <TableCell className="font-mono tabular-nums font-medium text-foreground">
+                    {p.pin_code}
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </Card>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-end gap-2 text-sm text-muted-foreground">
+          <span>
+            Página {page} de {totalPages}
+          </span>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            disabled={page <= 1}
+            onClick={() => setPage(page - 1)}
+            aria-label="Anterior"
+          >
+            <ChevronLeft />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            disabled={page >= totalPages}
+            onClick={() => setPage(page + 1)}
+            aria-label="Siguiente"
+          >
+            <ChevronRight />
+          </Button>
+        </div>
+      )}
+    </div>
   )
 }

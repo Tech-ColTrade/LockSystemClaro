@@ -1,15 +1,24 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { ChevronLeft, ChevronRight, CircleAlert, Plus } from 'lucide-react'
 import { usuariosApi } from '@/features/usuarios/api/usuarios.api'
-import type { Role, User } from '@/features/auth/types'
+import type { User } from '@/features/auth/types'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 
 const PAGE_SIZE = 10
-
-const rolePill: Record<Role, string> = {
-  admin: 'pill pill-lock',
-  operador: 'pill pill-ok',
-  consulta: 'pill pill-unlock',
-}
 
 export function UsuariosPage() {
   const [items, setItems] = useState<User[]>([])
@@ -47,107 +56,132 @@ export function UsuariosPage() {
   const totalPages = Math.max(1, Math.ceil(count / PAGE_SIZE))
 
   return (
-    <>
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
-        <h2 className="text-xl font-bold text-gray-800">Usuarios</h2>
-        <Link to="/usuarios/nuevo" className="btn btn-primary">
-          + Nuevo usuario
-        </Link>
+    <div className="mx-auto max-w-5xl">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Usuarios</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Gestiona las cuentas de la plataforma y sus roles.
+          </p>
+        </div>
+        <Button render={<Link to="/usuarios/nuevo" />}>
+          <Plus />
+          Nuevo usuario
+        </Button>
       </div>
 
-      <form onSubmit={onSearch} className="mb-5 flex max-w-md gap-2">
-        <input
-          type="text"
+      <form onSubmit={onSearch} className="mb-4 flex max-w-sm gap-2">
+        <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Buscar por correo o nombre..."
-          className="inp"
+          placeholder="Buscar por correo o nombre…"
         />
-        <button type="submit" className="btn btn-ghost">
+        <Button type="submit" variant="outline">
           Buscar
-        </button>
+        </Button>
       </form>
 
-      {error && <div className="msg msg-error">{error}</div>}
-
-      {loading ? (
-        <div className="card py-12 text-center text-gray-400">Cargando…</div>
-      ) : items.length === 0 ? (
-        <div className="card py-12 text-center text-gray-400">
-          No se encontraron usuarios.
-        </div>
-      ) : (
-        <div className="card overflow-x-auto !p-0">
-          <table className="w-full">
-            <thead>
-              <tr>
-                <th className="th">Correo</th>
-                <th className="th">Nombre</th>
-                <th className="th !text-center">Rol</th>
-                <th className="th !text-center">Estado</th>
-                <th className="th !text-center">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((u) => (
-                <tr key={u.id} className="hover:bg-gray-50">
-                  <td className="td font-medium">
-                    <Link
-                      to={`/usuarios/${u.id}/editar`}
-                      className="text-whale hover:underline"
-                    >
-                      {u.email}
-                    </Link>
-                  </td>
-                  <td className="td">{u.full_name || '—'}</td>
-                  <td className="td text-center">
-                    <span className={rolePill[u.role]}>{u.role_display}</span>
-                  </td>
-                  <td className="td text-center">
-                    {u.is_active ? (
-                      <span className="pill pill-unlock">Activo</span>
-                    ) : (
-                      <span className="pill pill-lock">Inactivo</span>
-                    )}
-                  </td>
-                  <td className="td whitespace-nowrap text-center">
-                    <Link
-                      to={`/usuarios/${u.id}/editar`}
-                      className="btn btn-sm btn-edit"
-                    >
-                      Editar
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      {error && (
+        <Alert variant="destructive" className="mb-4">
+          <CircleAlert />
+          <AlertTitle>No se pudo cargar</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
 
+      <Card className="gap-0 overflow-hidden p-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Correo</TableHead>
+              <TableHead>Nombre</TableHead>
+              <TableHead>Rol</TableHead>
+              <TableHead>Estado</TableHead>
+              <TableHead className="text-right">Acciones</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              Array.from({ length: 5 }).map((_, i) => (
+                <TableRow key={i}>
+                  {Array.from({ length: 5 }).map((__, j) => (
+                    <TableCell key={j}>
+                      <Skeleton className="h-4 w-full max-w-32" />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            ) : items.length === 0 ? (
+              <TableRow>
+                <TableCell
+                  colSpan={5}
+                  className="h-24 text-center text-muted-foreground"
+                >
+                  No se encontraron usuarios.
+                </TableCell>
+              </TableRow>
+            ) : (
+              items.map((u) => (
+                <TableRow key={u.id}>
+                  <TableCell className="font-medium">
+                    <Link to={`/usuarios/${u.id}/editar`} className="hover:underline">
+                      {u.email}
+                    </Link>
+                  </TableCell>
+                  <TableCell>{u.full_name || '—'}</TableCell>
+                  <TableCell>
+                    <Badge variant="secondary">{u.role_display}</Badge>
+                  </TableCell>
+                  <TableCell>
+                    {u.is_active ? (
+                      <Badge variant="secondary">Activo</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-muted-foreground">
+                        Inactivo
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      render={<Link to={`/usuarios/${u.id}/editar`} />}
+                    >
+                      Editar
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </Card>
+
       {totalPages > 1 && (
-        <div className="mt-4 flex items-center justify-center gap-3 text-sm text-gray-500">
-          <button
-            type="button"
-            className="btn btn-sm btn-ghost"
-            disabled={page <= 1}
-            onClick={() => setPage((p) => p - 1)}
-          >
-            ← Anterior
-          </button>
+        <div className="mt-4 flex items-center justify-end gap-2 text-sm text-muted-foreground">
           <span>
             Página {page} de {totalPages}
           </span>
-          <button
-            type="button"
-            className="btn btn-sm btn-ghost"
+          <Button
+            variant="outline"
+            size="icon-sm"
+            disabled={page <= 1}
+            onClick={() => setPage((p) => p - 1)}
+            aria-label="Anterior"
+          >
+            <ChevronLeft />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon-sm"
             disabled={page >= totalPages}
             onClick={() => setPage((p) => p + 1)}
+            aria-label="Siguiente"
           >
-            Siguiente →
-          </button>
+            <ChevronRight />
+          </Button>
         </div>
       )}
-    </>
+    </div>
   )
 }

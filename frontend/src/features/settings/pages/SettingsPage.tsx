@@ -280,6 +280,20 @@ function SeguridadPanel() {
 function AparienciaPanel() {
   const { dark, setTheme } = useLayoutPrefs()
   const { key, setAccent } = useAccent()
+  const { refreshUser } = useAuth()
+
+  // Aplica el acento al instante (CSS + caché local) y lo guarda en la cuenta,
+  // para que la app arranque con ese color en cualquier navegador o dispositivo.
+  const elegirAccent = (a: (typeof ACCENTS)[number]) => {
+    setAccent(a)
+    settingsApi
+      .updateAccent(a.key)
+      .then(refreshUser)
+      .catch(() => {
+        // La preferencia ya se aplicó localmente; si falla el guardado remoto
+        // (p. ej. sin red) no interrumpimos la experiencia.
+      })
+  }
 
   return (
     <Card>
@@ -318,26 +332,26 @@ function AparienciaPanel() {
                   <button
                     key={a.key}
                     type="button"
-                    onClick={() => setAccent(a)}
+                    onClick={() => elegirAccent(a)}
                     title={a.name}
                     aria-label={a.name}
                     className={cn(
                       'flex size-10 items-center justify-center rounded-full transition',
                       active
                         ? 'ring-2 ring-foreground ring-offset-2 ring-offset-background'
-                        : 'hover:scale-110',
+                        : 'ring-1 ring-border hover:scale-110',
                     )}
                     style={{
                       background: `linear-gradient(135deg, ${a.light}, ${a.dark})`,
                     }}
                   >
-                    {active && <Check className="size-4 text-white" />}
+                    {active && <Check className="size-4" style={{ color: a.fg }} />}
                   </button>
                 )
               })}
             </div>
             <p className="text-xs text-muted-foreground">
-              Se aplica al instante y se recuerda en este navegador.
+              Se aplica al instante y se guarda en tu cuenta para cualquier dispositivo.
             </p>
           </div>
         </div>

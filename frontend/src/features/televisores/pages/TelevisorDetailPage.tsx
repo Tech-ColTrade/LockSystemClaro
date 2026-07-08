@@ -1,5 +1,23 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import {
+  ArrowLeft,
+  Ban,
+  Check,
+  ChevronRight,
+  CircleAlert,
+  CircleCheck,
+  Copy,
+  KeyRound,
+  ListChecks,
+  Loader2,
+  Pencil,
+  RefreshCw,
+  ShieldCheck,
+  SlidersHorizontal,
+  Trash2,
+  Tv,
+} from 'lucide-react'
 import { televisoresApi } from '@/features/televisores/api/televisores.api'
 import { usePermissions } from '@/features/auth/usePermissions'
 import { ApiError } from '@/lib/http/errors'
@@ -9,6 +27,29 @@ import type {
   Televisor,
   ValidarResult,
 } from '@/features/televisores/types'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Separator } from '@/components/ui/separator'
+import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { cn } from '@/lib/utils'
 
 function formatearFecha(iso: string): string {
   const d = new Date(iso)
@@ -21,6 +62,81 @@ function formatearFecha(iso: string): string {
         hour: '2-digit',
         minute: '2-digit',
       })
+}
+
+function EstadoBadge({ inhabilitado }: { inhabilitado: boolean }) {
+  return inhabilitado ? (
+    <Badge variant="destructive">
+      <Ban /> Inhabilitado
+    </Badge>
+  ) : (
+    <Badge
+      variant="outline"
+      className="border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+    >
+      <CircleCheck /> Habilitado
+    </Badge>
+  )
+}
+
+function Campo({
+  label,
+  value,
+  mono,
+  children,
+}: {
+  label: string
+  value?: string
+  mono?: boolean
+  children?: React.ReactNode
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+        {label}
+      </span>
+      {children ?? (
+        <span
+          className={cn(
+            'text-sm font-medium text-foreground',
+            mono && 'font-mono break-all',
+          )}
+        >
+          {value || '—'}
+        </span>
+      )}
+    </div>
+  )
+}
+
+function RegistroRow({
+  to,
+  icon: Icon,
+  label,
+  count,
+}: {
+  to: string
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  count?: number
+}) {
+  return (
+    <Link
+      to={to}
+      className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2.5 transition-colors hover:bg-muted/50"
+    >
+      <span className="flex items-center gap-3 text-sm font-medium text-foreground">
+        <span className="flex size-9 items-center justify-center rounded-md bg-muted text-muted-foreground">
+          <Icon className="size-4" />
+        </span>
+        {label}
+      </span>
+      <span className="flex items-center gap-2">
+        <Badge variant="secondary">{count ?? '…'}</Badge>
+        <ChevronRight className="size-4 text-muted-foreground" />
+      </span>
+    </Link>
+  )
 }
 
 export function TelevisorDetailPage() {
@@ -134,200 +250,252 @@ export function TelevisorDetailPage() {
   }
 
   if (loading) {
-    return <div className="card py-12 text-center text-gray-400">Cargando…</div>
+    return (
+      <div className="mx-auto flex max-w-4xl flex-col gap-5">
+        <Skeleton className="h-8 w-44" />
+        <Card>
+          <CardHeader className="border-b pb-4">
+            <Skeleton className="h-5 w-56" />
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="h-10" />
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   if (error || !tv) {
     return (
-      <div className="card">
-        <div className="msg msg-error">{error ?? 'Televisor no encontrado.'}</div>
-        <Link to="/televisores" className="btn btn-ghost">
-          ← Volver
-        </Link>
+      <div className="mx-auto flex max-w-4xl flex-col gap-4">
+        <Alert variant="destructive">
+          <CircleAlert />
+          <AlertTitle>No se pudo cargar</AlertTitle>
+          <AlertDescription>{error ?? 'Televisor no encontrado.'}</AlertDescription>
+        </Alert>
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-fit"
+          render={<Link to="/televisores" />}
+        >
+          <ArrowLeft data-icon="inline-start" /> Volver
+        </Button>
       </div>
     )
   }
 
   return (
-    <>
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <h2 className="text-lg font-bold text-gray-800">{tv.mac_address}</h2>
-          {tv.inhabilitado ? (
-            <span className="pill pill-lock">Inhabilitado</span>
-          ) : (
-            <span className="pill pill-unlock">Habilitado</span>
-          )}
-        </div>
-        <Link to="/televisores" className="btn btn-ghost">
-          ← Volver
-        </Link>
-      </div>
+    <div className="mx-auto flex max-w-4xl flex-col gap-5">
+      {/* Encabezado + acciones */}
+      <div className="flex flex-col gap-3">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="-ml-2 w-fit text-muted-foreground"
+          render={<Link to="/televisores" />}
+        >
+          <ArrowLeft data-icon="inline-start" /> Volver a televisores
+        </Button>
 
-      <div className="card">
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-          <h3 className="text-base font-bold text-gray-800">
-            Información del dispositivo
-          </h3>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <Tv className="size-5" />
+            </span>
+            <div className="flex flex-col gap-1">
+              <h1 className="font-mono text-lg font-bold text-foreground">
+                {tv.mac_address}
+              </h1>
+              <EstadoBadge inhabilitado={tv.inhabilitado} />
+            </div>
+          </div>
+
           <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={validar}
-              disabled={validando}
-              className="btn btn-sm btn-ghost"
-            >
+            <Button variant="outline" size="sm" onClick={validar} disabled={validando}>
+              {validando ? (
+                <Loader2 className="animate-spin" data-icon="inline-start" />
+              ) : (
+                <ShieldCheck data-icon="inline-start" />
+              )}
               {validando ? 'Validando…' : 'Validar'}
-            </button>
+            </Button>
             {canOperate && (
               <>
-                <Link to={`/televisores/${tv.id}/estado`} className="btn btn-sm btn-val">
-                  Estado
-                </Link>
-                <Link to={`/televisores/${tv.id}/editar`} className="btn btn-sm btn-edit">
-                  Editar
-                </Link>
-                <button type="button" onClick={eliminar} className="btn btn-sm btn-del">
-                  Eliminar
-                </button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  render={<Link to={`/televisores/${tv.id}/estado`} />}
+                >
+                  <SlidersHorizontal data-icon="inline-start" /> Estado
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  render={<Link to={`/televisores/${tv.id}/editar`} />}
+                >
+                  <Pencil data-icon="inline-start" /> Editar
+                </Button>
+                <Button variant="destructive" size="sm" onClick={eliminar}>
+                  <Trash2 data-icon="inline-start" /> Eliminar
+                </Button>
               </>
             )}
           </div>
         </div>
-
-        {validacion && (
-          <div
-            className={`msg mb-4 ${validacion.coincide ? 'msg-success' : 'msg-warning'}`}
-          >
-            {validacion.mensaje}
-          </div>
-        )}
-
-        <div className="overflow-hidden rounded-xl ring-1 ring-gray-100">
-          <table className="w-full text-sm">
-            <tbody>
-              <tr>
-                <th className="th w-1/3">Dirección MAC</th>
-                <th className="th w-1/3">Número de serie</th>
-                <th className="th w-1/3">N° Crédito</th>
-              </tr>
-              <tr>
-                <td className="td font-medium text-gray-800">{tv.mac_address}</td>
-                <td className="td">{tv.serial_number || '—'}</td>
-                <td className="td break-all">{tv.numero_credito || '—'}</td>
-              </tr>
-              <tr>
-                <th className="th">Estado</th>
-                <th className="th">Registrado</th>
-                <th className="th"></th>
-              </tr>
-              <tr>
-                <td className="td">
-                  {tv.inhabilitado ? (
-                    <span className="pill pill-lock">Inhabilitado</span>
-                  ) : (
-                    <span className="pill pill-unlock">Habilitado</span>
-                  )}
-                </td>
-                <td className="td">{formatearFecha(tv.created_at)}</td>
-                <td className="td"></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
       </div>
+
+      {/* Información del dispositivo */}
+      <Card>
+        <CardHeader className="border-b pb-4">
+          <CardTitle>Información del dispositivo</CardTitle>
+          <CardDescription>Datos de registro del televisor.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-5">
+          {validacion && (
+            <Alert
+              className={cn(
+                validacion.coincide
+                  ? 'border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+                  : 'border-amber-500/30 text-amber-600 dark:text-amber-400',
+              )}
+            >
+              {validacion.coincide ? <CircleCheck /> : <CircleAlert />}
+              <AlertTitle>
+                {validacion.coincide ? 'Estados sincronizados' : 'Diferencia detectada'}
+              </AlertTitle>
+              <AlertDescription
+                className={
+                  validacion.coincide
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-amber-600 dark:text-amber-400'
+                }
+              >
+                {validacion.mensaje}
+              </AlertDescription>
+            </Alert>
+          )}
+
+          <div className="grid gap-x-6 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">
+            <Campo label="Dirección MAC" value={tv.mac_address} mono />
+            <Campo label="Número de serie" value={tv.serial_number} />
+            <Campo label="N° Crédito" value={tv.numero_credito} mono />
+            <Campo label="Estado">
+              <EstadoBadge inhabilitado={tv.inhabilitado} />
+            </Campo>
+            <Campo label="Registrado" value={formatearFecha(tv.created_at)} />
+            <Campo label="EUI64" value={tv.eui64} mono />
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Registros */}
-      <div className="card mt-5">
-        <h3 className="mb-4 text-base font-bold text-gray-800">Registros</h3>
-        <div className="divide-y divide-gray-100 overflow-hidden rounded-xl ring-1 ring-gray-100">
-          <Link
+      <Card>
+        <CardHeader className="border-b pb-4">
+          <CardTitle>Registros</CardTitle>
+          <CardDescription>Historial asociado a este dispositivo.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2">
+          <RegistroRow
             to={`/televisores/${tv.id}/sincronizaciones`}
-            className="flex items-center justify-between px-4 py-3.5 transition hover:bg-gray-50"
-          >
-            <span className="text-sm font-medium text-gray-700">
-              Sincronizaciones
-            </span>
-            <span className="flex items-center gap-3">
-              <span className="pill pill-ok">{registros?.sincronizaciones ?? '…'}</span>
-              <span className="text-gray-300">›</span>
-            </span>
-          </Link>
-          <Link
+            icon={RefreshCw}
+            label="Sincronizaciones"
+            count={registros?.sincronizaciones}
+          />
+          <RegistroRow
             to={`/televisores/${tv.id}/pincodes`}
-            className="flex items-center justify-between px-4 py-3.5 transition hover:bg-gray-50"
-          >
-            <span className="text-sm font-medium text-gray-700">Códigos Pin</span>
-            <span className="flex items-center gap-3">
-              <span className="pill pill-ok">{registros?.pincodes ?? '…'}</span>
-              <span className="text-gray-300">›</span>
-            </span>
-          </Link>
-        </div>
-      </div>
+            icon={ListChecks}
+            label="Códigos Pin"
+            count={registros?.pincodes}
+          />
+        </CardContent>
+      </Card>
 
       {/* Código Pin (Habilitación manual) */}
-      <div className="card mt-5">
-        <h3 className="text-base font-bold text-gray-800">Código Pin</h3>
-        <p className="mt-0.5 mb-4 text-sm text-gray-500">
-          Ingresa el <b>Código de Acceso</b> que muestra el televisor para obtener
-          su <b>Código Pin</b> de desbloqueo.
-        </p>
-
-        <form onSubmit={obtenerPin} className="flex flex-wrap items-end gap-3">
-          <div>
-            <label className="lbl" htmlFor="passcode">
-              Código de Acceso (Passcode)
-            </label>
-            <input
-              id="passcode"
-              className="inp"
-              value={passInput}
-              onChange={(e) => setPassInput(e.target.value)}
-              placeholder="Ej. 0323"
-              inputMode="numeric"
-              autoComplete="off"
-            />
-          </div>
-          <button
-            type="submit"
-            className="btn btn-primary"
-            disabled={obteniendo || !passInput.trim()}
-          >
-            {obteniendo ? 'Obteniendo…' : 'Obtener Código Pin'}
-          </button>
-        </form>
-
-        {codigosError && <div className="msg msg-error mt-3">{codigosError}</div>}
-
-        {noEncontrado && (
-          <div className="msg msg-warning mt-3">
-            No hay un Código Pin disponible para ese Código de Acceso.
-          </div>
-        )}
-
-        {pinResult && (
-          <div className="mt-4 rounded-2xl bg-whale/5 p-5 text-center ring-1 ring-whale/20">
-            <p className="text-sm text-gray-500">
-              Código Pin para el acceso{' '}
-              <b className="text-gray-700">{pinResult.passCode}</b>
-            </p>
-            <div className="my-2 text-4xl font-extrabold tracking-widest text-whale tabular-nums">
-              {pinResult.pinCode}
+      <Card>
+        <CardHeader className="border-b pb-4">
+          <CardTitle className="flex items-center gap-2">
+            <KeyRound className="size-4 text-muted-foreground" /> Código Pin
+          </CardTitle>
+          <CardDescription>
+            Ingresa el <b>Código de Acceso</b> que muestra el televisor para obtener su{' '}
+            <b>Código Pin</b> de desbloqueo.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <form onSubmit={obtenerPin} className="flex flex-wrap items-end gap-3">
+            <div className="grid gap-2">
+              <Label htmlFor="passcode">Código de Acceso (Passcode)</Label>
+              <Input
+                id="passcode"
+                className="w-48"
+                value={passInput}
+                onChange={(e) => setPassInput(e.target.value)}
+                placeholder="Ej. 0323"
+                inputMode="numeric"
+                autoComplete="off"
+              />
             </div>
-            <button
-              type="button"
-              className="btn btn-sm btn-ghost"
-              onClick={() => copiar(pinResult.pinCode)}
-            >
-              {copiado ? '✓ Copiado' : '📋 Copiar'}
-            </button>
-          </div>
-        )}
+            <Button type="submit" disabled={obteniendo || !passInput.trim()}>
+              {obteniendo ? (
+                <Loader2 className="animate-spin" data-icon="inline-start" />
+              ) : (
+                <KeyRound data-icon="inline-start" />
+              )}
+              {obteniendo ? 'Obteniendo…' : 'Obtener Código Pin'}
+            </Button>
+          </form>
 
-        <div className="mt-4">
-          <button
+          {codigosError && (
+            <Alert variant="destructive">
+              <CircleAlert />
+              <AlertDescription>{codigosError}</AlertDescription>
+            </Alert>
+          )}
+
+          {noEncontrado && (
+            <Alert className="border-amber-500/30 text-amber-600 dark:text-amber-400">
+              <CircleAlert />
+              <AlertDescription className="text-amber-600 dark:text-amber-400">
+                No hay un Código Pin disponible para ese Código de Acceso.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {pinResult && (
+            <div className="rounded-xl border border-primary/20 bg-primary/5 p-6 text-center">
+              <p className="text-sm text-muted-foreground">
+                Código Pin para el acceso{' '}
+                <b className="text-foreground">{pinResult.passCode}</b>
+              </p>
+              <div className="my-3 font-mono text-4xl font-extrabold tracking-[0.3em] text-primary tabular-nums">
+                {pinResult.pinCode}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => copiar(pinResult.pinCode)}
+              >
+                {copiado ? (
+                  <Check data-icon="inline-start" />
+                ) : (
+                  <Copy data-icon="inline-start" />
+                )}
+                {copiado ? 'Copiado' : 'Copiar'}
+              </Button>
+            </div>
+          )}
+
+          <Separator />
+
+          <Button
             type="button"
-            className="text-sm font-medium text-whale hover:underline"
+            variant="link"
+            className="h-auto w-fit p-0"
             onClick={toggleTodos}
             disabled={cargandoCodigos}
           >
@@ -336,30 +504,32 @@ export function TelevisorDetailPage() {
               : verTodos
                 ? 'Ocultar todos los códigos'
                 : 'Ver todos los códigos disponibles'}
-          </button>
-        </div>
+          </Button>
 
-        {verTodos && grupos && (
-          <div className="mt-3 max-h-72 overflow-auto rounded-xl ring-1 ring-gray-100">
-            <table className="w-full text-sm">
-              <thead>
-                <tr>
-                  <th className="th">Código de Acceso</th>
-                  <th className="th">Código Pin</th>
-                </tr>
-              </thead>
-              <tbody>
-                {grupos.map((g) => (
-                  <tr key={g.codeId} className="hover:bg-gray-50">
-                    <td className="td font-medium">{g.passCode}</td>
-                    <td className="td tabular-nums">{g.pinCode}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </>
+          {verTodos && grupos && (
+            <div className="max-h-72 overflow-auto rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Código de Acceso</TableHead>
+                    <TableHead>Código Pin</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {grupos.map((g) => (
+                    <TableRow key={g.codeId}>
+                      <TableCell className="font-medium">{g.passCode}</TableCell>
+                      <TableCell className="font-mono tabular-nums">
+                        {g.pinCode}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   )
 }

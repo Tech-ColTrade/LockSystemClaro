@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { authApi } from '@/features/auth/api/auth.api'
 import { AuthContext, type AuthContextValue } from '@/features/auth/context/auth-context'
 import type { AuthStatus, User } from '@/features/auth/types'
+import { applyAccentKey } from '@/features/settings/accent'
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
@@ -16,6 +17,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!active) return
       setUser(restored)
       setStatus(restored ? 'authenticated' : 'unauthenticated')
+      // Arranca con el acento guardado en la cuenta (fuente de verdad).
+      if (restored) applyAccentKey(restored.accent)
     })
     return () => {
       active = false
@@ -26,6 +29,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const loggedIn = await authApi.login(email, password)
     setUser(loggedIn)
     setStatus('authenticated')
+    // Al entrar, aplica el acento que el usuario dejó guardado en su cuenta.
+    applyAccentKey(loggedIn.accent)
   }, [])
 
   const logout = useCallback(() => {

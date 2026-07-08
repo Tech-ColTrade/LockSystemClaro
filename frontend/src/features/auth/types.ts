@@ -12,6 +12,8 @@ export interface User {
   role_display: string
   is_active: boolean
   date_joined: string
+  /** Preferencia de color de acento (clave del preset, p. ej. 'neutro'). */
+  accent: string
 }
 
 export interface AuthTokens {

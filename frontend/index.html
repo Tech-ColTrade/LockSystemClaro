@@ -20,14 +20,24 @@
         document.documentElement.classList.add('dark')
       if (localStorage.sidebar === 'collapsed')
         document.documentElement.classList.add('side-collapsed')
-      // Color de acento persistido ("base|dark|light").
+      // Color de acento persistido ("base|dark|light|fg").
+      // Sin selección → Neutro adaptativo por defecto (oscuro en claro, blanco en oscuro).
       try {
-        var a = (localStorage['ls.accent'] || '').split('|')
-        if (a.length === 3) {
-          var s = document.documentElement.style
-          s.setProperty('--color-whale', a[0])
-          s.setProperty('--color-whale-dark', a[1])
-          s.setProperty('--color-whale-light', a[2])
+        var s = document.documentElement.style
+        var raw = localStorage['ls.accent']
+        if (raw) {
+          var a = raw.split('|')
+          if (a.length >= 3) {
+            s.setProperty('--color-whale', a[0])
+            s.setProperty('--color-whale-dark', a[1])
+            s.setProperty('--color-whale-light', a[2])
+            if (a[3]) s.setProperty('--primary-foreground', a[3])
+          }
+        } else {
+          s.setProperty('--color-whale', 'var(--foreground)')
+          s.setProperty('--color-whale-dark', 'var(--foreground)')
+          s.setProperty('--color-whale-light', 'var(--foreground)')
+          s.setProperty('--primary-foreground', 'var(--background)')
         }
       } catch (e) {}
     </script>

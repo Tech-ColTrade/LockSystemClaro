@@ -5,7 +5,7 @@
 /* Dark mode por clase (.dark en <html>), no por preferencia del sistema. */
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* ---- Tema de marca (copiado de whaletv) ---- */
+/* ---- Tema de marca ---- */
 @theme {
   --color-whale: #f6186a;
   --color-whale-dark: #d10f57;
@@ -15,7 +15,7 @@
   --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04), 0 4px 16px rgba(16, 24, 40, 0.06);
 }
 
-/* ---- Sistema de componentes (design system de whaletv) ---- */
+/* ---- Sistema de componentes ---- */
 @layer components {
   .btn {
     @apply inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold cursor-pointer transition-all duration-150 no-underline select-none active:scale-[.97];
@@ -24,7 +24,8 @@
     @apply px-2.5 py-1 text-xs rounded-md;
   }
   .btn-primary {
-    @apply text-white bg-gradient-to-b from-whale to-whale-dark shadow-sm shadow-whale/30 hover:shadow-md hover:shadow-whale/40 hover:brightness-105;
+    @apply bg-gradient-to-b from-whale to-whale-dark shadow-sm shadow-whale/30 hover:shadow-md hover:shadow-whale/40 hover:brightness-105;
+    color: var(--primary-foreground, #fff);
   }
   .btn-ghost {
     @apply bg-white text-gray-600 border border-gray-200 hover:bg-gray-50 hover:border-gray-300;
@@ -234,50 +235,6 @@ body {
 }
 .dark .lbl {
   color: #c2c2c8 !important;
-}
-
-/* ---- Sidebar colapsable ---- */
-#sidebar {
-  transition: width 0.22s ease;
-}
-html.side-collapsed #sidebar {
-  width: 4.75rem;
-}
-html.side-collapsed #sidebar .side-label {
-  display: none;
-}
-html.side-collapsed #sidebar .nav-section {
-  opacity: 0;
-}
-html.side-collapsed #sidebar .navlink {
-  justify-content: center;
-  margin-left: 0.55rem;
-  margin-right: 0.55rem;
-  padding-left: 0;
-  padding-right: 0;
-}
-html.side-collapsed #sidebar .logo-wrap {
-  justify-content: center;
-}
-html.side-collapsed #sidebar .theme-wrap {
-  padding-left: 0.55rem;
-  padding-right: 0.55rem;
-}
-html.side-collapsed #sidebar .theme-toggle {
-  flex-direction: column;
-  gap: 0.25rem;
-}
-html.side-collapsed #sidebar .user-wrap {
-  padding-left: 0.55rem;
-  padding-right: 0.55rem;
-}
-html.side-collapsed #sidebar .user-card {
-  justify-content: center;
-  padding-left: 0;
-  padding-right: 0;
-}
-html.side-collapsed .toggle-chevron {
-  transform: rotate(180deg);
 }
 
 /* ---- Scrollbar sutil ---- */

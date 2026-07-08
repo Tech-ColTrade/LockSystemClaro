@@ -19,14 +19,28 @@ import { dashboardApi } from '@/features/dashboard/api/dashboard.api'
 import { useChartColors, type ChartColors } from '@/features/dashboard/chartTheme'
 import {
   ChartCard,
+  PeriodSelector,
   SectionTitle,
-  Segmented,
   StatTile,
   type Tone,
 } from '@/features/dashboard/components/DashboardUI'
 import type { DashboardResumen, Periodo } from '@/features/dashboard/types'
 import { ApiError } from '@/lib/http/errors'
 import * as I from '@/features/dashboard/components/icons'
+import { CalendarDays } from 'lucide-react'
+import { es } from 'react-day-picker/locale'
+import type { DateRange } from 'react-day-picker'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Calendar } from '@/components/ui/calendar'
+import { Card } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import { Skeleton } from '@/components/ui/skeleton'
 
 const PERIODOS: { value: Periodo; label: string }[] = [
   { value: 'dia', label: 'Día' },
@@ -52,8 +66,8 @@ function tooltipStyle(c: ChartColors) {
 
 function Empty({ children }: { children: ReactNode }) {
   return (
-    <div className="flex h-[240px] flex-col items-center justify-center gap-2 text-sm text-gray-400">
-      <svg className="h-8 w-8 text-gray-300 dark:text-gray-600" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+    <div className="flex h-[240px] flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+      <svg className="h-8 w-8 text-muted-foreground/50" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
         <path d="M3 3v18h18" />
         <path d="M7 14l3-3 3 3 4-5" />
       </svg>
@@ -101,10 +115,10 @@ function Donut({
           </PieChart>
         </ResponsiveContainer>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-3xl font-bold tabular-nums text-gray-800 dark:text-white">
+          <span className="text-3xl font-bold tabular-nums text-foreground">
             {centerValue}
           </span>
-          <span className="text-[0.7rem] font-medium tracking-wide text-gray-400 uppercase">
+          <span className="text-[0.7rem] font-medium tracking-wide text-muted-foreground uppercase">
             {centerLabel}
           </span>
         </div>
@@ -113,8 +127,8 @@ function Donut({
         {data.map((d) => (
           <div key={d.name} className="flex items-center gap-1.5 text-xs">
             <span className="h-2.5 w-2.5 rounded-full" style={{ background: d.color }} />
-            <span className="text-gray-500 dark:text-gray-300">{d.name}</span>
-            <span className="font-semibold tabular-nums text-gray-700 dark:text-white">
+            <span className="text-muted-foreground">{d.name}</span>
+            <span className="font-semibold tabular-nums text-foreground">
               {d.value.toLocaleString('es-CO')}
             </span>
           </div>
@@ -212,43 +226,40 @@ export function DashboardPage() {
 
   return (
     <>
-      {/* Hero */}
-      <div className="relative mb-6 overflow-hidden rounded-2xl bg-gradient-to-br from-[#26262d] via-[#1c1c22] to-[#141417] px-6 py-6 text-white shadow-lg">
-        <div className="pointer-events-none absolute -top-20 -right-12 h-56 w-56 rounded-full bg-whale/25 blur-3xl" />
-        <div className="pointer-events-none absolute top-8 right-40 h-32 w-32 rounded-full bg-sky-500/10 blur-2xl" />
-        <div className="relative flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3.5">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-whale-light to-whale-dark shadow-lg shadow-whale/30">
-              <I.Dashboard className="h-6 w-6" />
-            </div>
-            <div>
-              <h2 className="text-2xl font-extrabold tracking-tight">Dashboard</h2>
-              <p className="mt-0.5 text-sm text-white/50">
-                Inhabilitaciones, efectividad, actividad y auditoría del parque.
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            {horaTxt && (
-              <span className="hidden items-center gap-1.5 text-xs text-white/40 sm:flex">
-                <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                Actualizado {horaTxt}
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={() => cargar(periodo)}
-              disabled={loading}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-3.5 py-2 text-sm font-semibold text-white/80 transition hover:bg-white/10 disabled:opacity-50"
-            >
-              <I.Refresh className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-              Actualizar
-            </button>
-          </div>
+      {/* Encabezado */}
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Dashboard</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Inhabilitaciones, efectividad, actividad y auditoría del parque.
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          {horaTxt && (
+            <span className="hidden text-xs text-muted-foreground sm:inline">
+              Actualizado {horaTxt}
+            </span>
+          )}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => cargar(periodo)}
+            disabled={loading}
+          >
+            <I.Refresh className={loading ? 'animate-spin' : ''} />
+            Actualizar
+          </Button>
         </div>
       </div>
 
-      {error && <div className="msg msg-error">{error}</div>}
+      {error && (
+        <Alert variant="destructive" className="mb-6">
+          <I.Shield />
+          <AlertTitle>Ocurrió un problema</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
 
       {loading || !data ? (
         <DashboardSkeleton />
@@ -432,7 +443,7 @@ export function DashboardPage() {
               icon={<I.Trend className="h-5 w-5" />}
               onExcel={() => descargar(() => dashboardApi.exportTendencia(periodo))}
               headerRight={
-                <Segmented value={periodo} onChange={setPeriodo} options={PERIODOS} />
+                <PeriodSelector value={periodo} onChange={setPeriodo} options={PERIODOS} />
               }
             >
               {data.serie_tiempo.datos.length === 0 ? (
@@ -578,19 +589,19 @@ function DashboardSkeleton() {
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
         {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="card !p-4">
-            <div className="h-3 w-16 animate-pulse rounded bg-gray-100 dark:bg-white/5" />
-            <div className="mt-2 h-8 w-20 animate-pulse rounded bg-gray-100 dark:bg-white/5" />
-            <div className="mt-3 h-1.5 w-full animate-pulse rounded bg-gray-100 dark:bg-white/5" />
-          </div>
+          <Card key={i} className="gap-0 p-4">
+            <Skeleton className="h-3 w-16" />
+            <Skeleton className="mt-2 h-8 w-20" />
+            <Skeleton className="mt-3 h-1.5 w-full" />
+          </Card>
         ))}
       </div>
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         {Array.from({ length: 2 }).map((_, i) => (
-          <div key={i} className="card !p-5">
-            <div className="h-4 w-40 animate-pulse rounded bg-gray-100 dark:bg-white/5" />
-            <div className="mt-4 h-[240px] animate-pulse rounded-xl bg-gray-100 dark:bg-white/5" />
-          </div>
+          <Card key={i} className="gap-4 p-5">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-[240px] w-full rounded-xl" />
+          </Card>
         ))}
       </div>
     </div>
@@ -613,23 +624,25 @@ function ReportItem({
   desc: string
   children: ReactNode
 }) {
+  // Monocromático: mismo gris neutro para todos.
+  const chipClass = 'bg-muted text-muted-foreground'
   const chip: Record<Tone, string> = {
-    brand: 'bg-whale/10 text-whale dark:bg-whale/20 dark:text-whale-light',
-    rose: 'bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-400',
-    emerald: 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400',
-    sky: 'bg-sky-100 text-sky-600 dark:bg-sky-500/15 dark:text-sky-400',
-    amber: 'bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400',
-    slate: 'bg-slate-100 text-slate-600 dark:bg-slate-500/15 dark:text-slate-300',
+    brand: chipClass,
+    rose: chipClass,
+    emerald: chipClass,
+    sky: chipClass,
+    amber: chipClass,
+    slate: chipClass,
   }
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-gray-100 p-4 transition hover:border-gray-200 hover:bg-gray-50/60 dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/5">
+    <div className="flex flex-col gap-3 rounded-xl border border-border p-4 transition hover:bg-muted/50">
       <div className="flex items-start gap-3">
         <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${chip[tone]}`}>
           {icon}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold text-gray-800 dark:text-white">{title}</div>
-          <div className="mt-0.5 text-xs text-gray-400">{desc}</div>
+          <div className="text-sm font-semibold text-foreground">{title}</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">{desc}</div>
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2">{children}</div>
@@ -637,16 +650,82 @@ function ReportItem({
   )
 }
 
+// --- Selector de rango de fechas (Calendar de shadcn en un Popover) ---
+function toISO(d: Date | undefined): string {
+  if (!d) return ''
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function fromISO(s: string): Date | undefined {
+  if (!s) return undefined
+  const [y, m, d] = s.split('-').map(Number)
+  if (!y || !m || !d) return undefined
+  return new Date(y, m - 1, d)
+}
+
+function fmtCorta(d: Date | undefined): string {
+  return d
+    ? d.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })
+    : ''
+}
+
+function RangoFechas({
+  desde,
+  hasta,
+  setDesde,
+  setHasta,
+}: {
+  desde: string
+  hasta: string
+  setDesde: (v: string) => void
+  setHasta: (v: string) => void
+}) {
+  const from = fromISO(desde)
+  const to = fromISO(hasta)
+  const range: DateRange | undefined = from ? { from, to } : undefined
+  const label = from
+    ? to
+      ? `${fmtCorta(from)} – ${fmtCorta(to)}`
+      : fmtCorta(from)
+    : 'Rango de fechas'
+
+  return (
+    <Popover>
+      <PopoverTrigger
+        render={
+          <Button variant="outline" size="sm" className="justify-start font-normal" />
+        }
+      >
+        <CalendarDays data-icon="inline-start" />
+        {label}
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-auto p-0">
+        <Calendar
+          mode="range"
+          numberOfMonths={2}
+          selected={range}
+          onSelect={(r) => {
+            setDesde(toISO(r?.from))
+            setHasta(toISO(r?.to))
+          }}
+          captionLayout="dropdown"
+          locale={es}
+          autoFocus
+        />
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 function ExcelBtn({ onClick, disabled }: { onClick?: () => void; disabled?: boolean }) {
   return (
-    <button
-      className="btn btn-ghost btn-sm inline-flex items-center gap-1 disabled:opacity-50"
-      onClick={onClick}
-      disabled={disabled}
-    >
-      <I.Excel className="h-3.5 w-3.5" />
+    <Button variant="outline" size="sm" onClick={onClick} disabled={disabled}>
+      <I.Excel />
       {disabled ? 'Pendiente' : 'Excel'}
-    </button>
+    </Button>
   )
 }
 
@@ -670,8 +749,8 @@ function ReportesDescargables({
   descargar: (fn: () => Promise<void>) => Promise<void>
 }) {
   return (
-    <div className="card">
-      <p className="mb-4 text-xs text-gray-400">
+    <Card className="gap-4 p-5">
+      <p className="text-xs text-muted-foreground">
         Descarga los registros a nivel de detalle en Excel (.xlsx).
       </p>
 
@@ -709,11 +788,11 @@ function ReportesDescargables({
           title="Histórico por Serial"
           desc="Fechas y horas de cada acción. Filtra por serial."
         >
-          <input
+          <Input
             value={serial}
             onChange={(e) => setSerial(e.target.value)}
             placeholder="Serial…"
-            className="inp !w-32 !py-1.5 text-xs"
+            className="w-32"
           />
           <ExcelBtn onClick={() => descargar(() => dashboardApi.exportHistoricoSerial(serial))} />
         </ReportItem>
@@ -751,17 +830,11 @@ function ReportesDescargables({
           title="Auditoría de pines por usuario"
           desc="Pines entregados por usuario en un período."
         >
-          <input
-            type="date"
-            value={desde}
-            onChange={(e) => setDesde(e.target.value)}
-            className="inp !w-auto !py-1.5 text-xs"
-          />
-          <input
-            type="date"
-            value={hasta}
-            onChange={(e) => setHasta(e.target.value)}
-            className="inp !w-auto !py-1.5 text-xs"
+          <RangoFechas
+            desde={desde}
+            hasta={hasta}
+            setDesde={setDesde}
+            setHasta={setHasta}
           />
           <ExcelBtn onClick={() => descargar(() => dashboardApi.exportPinesAuditoria(desde, hasta))} />
         </ReportItem>
@@ -775,6 +848,6 @@ function ReportesDescargables({
           <ExcelBtn disabled />
         </ReportItem>
       </div>
-    </div>
+    </Card>
   )
 }

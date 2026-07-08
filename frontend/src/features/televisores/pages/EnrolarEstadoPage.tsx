@@ -1,15 +1,131 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import {
+  ArrowLeft,
+  ArrowLeftRight,
+  CircleAlert,
+  CircleCheck,
+  CircleX,
+  Clock,
+  Download,
+  FileSpreadsheet,
+  Loader2,
+  Lock,
+  RefreshCw,
+  Unlock,
+  UploadCloud,
+} from 'lucide-react'
 import { televisoresApi } from '@/features/televisores/api/televisores.api'
 import type {
+  BulkSyncItemRecord,
   BulkSyncStatus,
   EnrolarEstadoResult,
 } from '@/features/televisores/types'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
+import { Progress } from '@/components/ui/progress'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { cn } from '@/lib/utils'
+
+const COLUMNAS = [
+  { columna: 'mac_address', ejemplo: 'B4:04:29:7E:3A:AA', obligatoria: true },
+  { columna: 'estado', ejemplo: 'habilitado / inhabilitado', obligatoria: true },
+  { columna: 'serial_number', ejemplo: 'B4:04:29:7E:3A:AA', obligatoria: false },
+]
+
+type Tone = 'emerald' | 'primary' | 'violet' | 'destructive' | 'muted'
+
+function Stat({
+  label,
+  value,
+  icon: Icon,
+  tone,
+}: {
+  label: string
+  value: number
+  icon: React.ComponentType<{ className?: string }>
+  tone: Tone
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-muted/30 p-4">
+      <span
+        className={cn(
+          'flex size-10 items-center justify-center rounded-lg',
+          tone === 'emerald' && 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+          tone === 'primary' && 'bg-primary/10 text-primary',
+          tone === 'violet' && 'bg-violet-500/10 text-violet-600 dark:text-violet-400',
+          tone === 'destructive' && 'bg-destructive/10 text-destructive',
+          tone === 'muted' && 'bg-muted text-muted-foreground',
+        )}
+      >
+        <Icon className="size-5" />
+      </span>
+      <div className="flex flex-col">
+        <span className="text-2xl font-bold tabular-nums text-foreground">{value}</span>
+        <span className="text-xs text-muted-foreground">{label}</span>
+      </div>
+    </div>
+  )
+}
+
+function ObjetivoBadge({ inhabilitar }: { inhabilitar: boolean }) {
+  return inhabilitar ? (
+    <Badge variant="destructive">
+      <Lock /> Inhabilitar
+    </Badge>
+  ) : (
+    <Badge
+      variant="outline"
+      className="border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+    >
+      <Unlock /> Habilitar
+    </Badge>
+  )
+}
+
+function ItemResultado({ item }: { item: BulkSyncItemRecord }) {
+  if (item.estado === 'ok')
+    return (
+      <Badge
+        variant="outline"
+        className="border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+      >
+        <CircleCheck /> {item.mensaje || 'OK'}
+      </Badge>
+    )
+  if (item.estado === 'error')
+    return (
+      <Badge variant="destructive">
+        <CircleX /> {item.mensaje || 'Error'}
+      </Badge>
+    )
+  return (
+    <Badge variant="secondary">
+      <Loader2 className="animate-spin" /> En proceso…
+    </Badge>
+  )
+}
 
 export function EnrolarEstadoPage() {
   const inputRef = useRef<HTMLInputElement>(null)
   const pollRef = useRef<number | null>(null)
 
+  const [fileName, setFileName] = useState<string | null>(null)
   const [resumen, setResumen] = useState<EnrolarEstadoResult | null>(null)
   const [bulk, setBulk] = useState<BulkSyncStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -74,190 +190,308 @@ export function EnrolarEstadoPage() {
   const enProgreso = bulk !== null && !bulk.finalizado
 
   return (
-    <>
+    <div className="mx-auto flex max-w-2xl flex-col gap-5">
+      {/* Encabezado */}
+      <div className="flex flex-col gap-3">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="-ml-2 w-fit text-muted-foreground"
+          render={<Link to="/televisores" />}
+        >
+          <ArrowLeft data-icon="inline-start" /> Volver a televisores
+        </Button>
+        <div className="flex items-center gap-3">
+          <span className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <ArrowLeftRight className="size-5" />
+          </span>
+          <div className="flex flex-col gap-0.5">
+            <h1 className="text-lg font-bold text-foreground">Enrolar estado</h1>
+            <p className="text-sm text-muted-foreground">
+              Fija el estado en masa y sincroniza el portal remoto.
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Resumen de importación */}
       {resumen && (
-        <div className="card mb-5 max-w-2xl">
-          <h2 className="mb-3 text-lg font-bold text-gray-800">
-            Resultado de la importación
-          </h2>
-          <div className="flex flex-wrap gap-3">
-            <span className="rounded-lg bg-green-100 px-3 py-2 font-bold text-green-700">
-              Creados: {resumen.creados}
-            </span>
-            <span className="rounded-lg bg-sky-100 px-3 py-2 font-bold text-sky-700">
-              Actualizados: {resumen.actualizados}
-            </span>
-            <span className="rounded-lg bg-violet-100 px-3 py-2 font-bold text-violet-700">
-              Con cambio de estado: {resumen.cambios}
-            </span>
-            {resumen.errores.length > 0 && (
-              <span className="rounded-lg bg-red-100 px-3 py-2 font-bold text-red-700">
-                Con error: {resumen.errores.length}
-              </span>
-            )}
-          </div>
-          {resumen.errores.length > 0 && (
-            <div className="mt-3 max-h-40 divide-y divide-red-100 overflow-auto text-sm text-red-700">
-              {resumen.errores.map((e, i) => (
-                <div key={i} className="py-1">
-                  {e}
-                </div>
-              ))}
+        <Card>
+          <CardHeader className="border-b pb-4">
+            <CardTitle>Resultado de la importación</CardTitle>
+            <CardDescription>Resumen del último archivo procesado.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <Stat label="Creados" value={resumen.creados} icon={CircleCheck} tone="emerald" />
+              <Stat
+                label="Actualizados"
+                value={resumen.actualizados}
+                icon={RefreshCw}
+                tone="primary"
+              />
+              <Stat
+                label="Con cambio"
+                value={resumen.cambios}
+                icon={ArrowLeftRight}
+                tone="violet"
+              />
+              <Stat
+                label="Con error"
+                value={resumen.errores.length}
+                icon={CircleX}
+                tone={resumen.errores.length > 0 ? 'destructive' : 'muted'}
+              />
             </div>
-          )}
-          {resumen.job === null && (
-            <p className="mt-3 text-sm text-gray-500">
-              No hubo cambios de estado que sincronizar con el portal.
-            </p>
-          )}
-        </div>
+
+            {resumen.errores.length > 0 && (
+              <div className="overflow-hidden rounded-lg border border-destructive/30 bg-destructive/5">
+                <div className="flex items-center gap-2 border-b border-destructive/20 px-4 py-2 text-sm font-medium text-destructive">
+                  <CircleAlert className="size-4" /> {resumen.errores.length} fila(s) con
+                  error
+                </div>
+                <div className="max-h-40 divide-y divide-destructive/10 overflow-auto">
+                  {resumen.errores.map((e, i) => (
+                    <div key={i} className="px-4 py-1.5 text-sm text-destructive/90">
+                      {e}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {resumen.job === null && (
+              <p className="text-sm text-muted-foreground">
+                No hubo cambios de estado que sincronizar con el portal.
+              </p>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {/* Progreso de la sincronización masiva */}
       {bulk && (
-        <div className="card mb-5 max-w-2xl">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <h3 className="text-base font-bold text-gray-800">
-              {enProgreso
-                ? 'Sincronizando con el portal…'
-                : bulk.estado === 'terminado'
-                  ? '✓ Sincronización completada'
-                  : 'Sincronización con errores'}
-            </h3>
-            <span className="text-sm text-gray-500">
-              {bulk.procesados}/{bulk.total}
-            </span>
-          </div>
-
-          <div className="mb-1 text-4xl font-extrabold tabular-nums text-whale">
-            {bulk.porcentaje}%
-          </div>
-          <div className="h-3 w-full overflow-hidden rounded-full bg-gray-100">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-whale to-whale-dark transition-all duration-300"
-              style={{ width: `${bulk.porcentaje}%` }}
-            />
-          </div>
-
-          {bulk.finalizado && (
-            <div className="mt-3 flex gap-3 text-sm">
-              <span className="pill pill-ok">OK: {bulk.ok_count}</span>
-              {bulk.error_count > 0 && (
-                <span className="pill pill-lock">Error: {bulk.error_count}</span>
+        <Card>
+          <CardHeader className="border-b pb-4">
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className="flex items-center gap-2">
+                {enProgreso ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin text-primary" />
+                    Sincronizando con el portal…
+                  </>
+                ) : bulk.estado === 'terminado' ? (
+                  <>
+                    <CircleCheck className="size-4 text-emerald-600 dark:text-emerald-400" />
+                    Sincronización completada
+                  </>
+                ) : (
+                  <>
+                    <CircleAlert className="size-4 text-destructive" />
+                    Sincronización con errores
+                  </>
+                )}
+              </CardTitle>
+              <Badge variant="secondary" className="tabular-nums">
+                {bulk.procesados}/{bulk.total}
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <div className="flex items-end justify-between gap-3">
+              <div
+                className={cn(
+                  'text-4xl font-extrabold tabular-nums',
+                  bulk.finalizado && bulk.estado !== 'terminado'
+                    ? 'text-destructive'
+                    : bulk.estado === 'terminado'
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : 'text-primary',
+                )}
+              >
+                {bulk.porcentaje}%
+              </div>
+              {bulk.finalizado && (
+                <div className="flex gap-2">
+                  <Badge
+                    variant="outline"
+                    className="border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                  >
+                    <CircleCheck /> OK: {bulk.ok_count}
+                  </Badge>
+                  {bulk.error_count > 0 && (
+                    <Badge variant="destructive">
+                      <CircleX /> Error: {bulk.error_count}
+                    </Badge>
+                  )}
+                </div>
               )}
             </div>
-          )}
 
-          {bulk.items.length > 0 && (
-            <div className="mt-4 overflow-hidden rounded-xl ring-1 ring-gray-100">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr>
-                    <th className="th">MAC</th>
-                    <th className="th">Objetivo</th>
-                    <th className="th">Resultado</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {bulk.items.map((it) => (
-                    <tr key={it.id}>
-                      <td className="td font-medium">{it.mac_address}</td>
-                      <td className="td">
-                        {it.inhabilitar ? 'Inhabilitar' : 'Habilitar'}
-                      </td>
-                      <td className="td">
-                        {it.estado === 'ok' ? (
-                          <span className="pill pill-ok">{it.mensaje || 'OK'}</span>
-                        ) : it.estado === 'error' ? (
-                          <span className="pill pill-lock">{it.mensaje || 'Error'}</span>
-                        ) : (
-                          <span className="pill pill-due">En proceso…</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+            <Progress
+              value={bulk.porcentaje}
+              className={cn(
+                'w-full [&_[data-slot=progress-track]]:h-2.5',
+                bulk.finalizado &&
+                  bulk.estado !== 'terminado' &&
+                  '[&_[data-slot=progress-indicator]]:bg-destructive',
+                bulk.estado === 'terminado' &&
+                  '[&_[data-slot=progress-indicator]]:bg-emerald-500',
+              )}
+            />
+
+            {bulk.items.length > 0 && (
+              <div className="max-h-96 overflow-auto rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>MAC</TableHead>
+                      <TableHead>Objetivo</TableHead>
+                      <TableHead>Resultado</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {bulk.items.map((it) => (
+                      <TableRow key={it.id}>
+                        <TableCell className="font-mono text-foreground">
+                          {it.mac_address}
+                        </TableCell>
+                        <TableCell>
+                          <ObjetivoBadge inhabilitar={it.inhabilitar} />
+                        </TableCell>
+                        <TableCell>
+                          <ItemResultado item={it} />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {/* Formulario de carga */}
-      <div className="card max-w-2xl">
-        <h2 className="mb-2 text-xl font-bold text-gray-800">Enrolar Estado</h2>
-        <p className="mb-4 text-sm text-gray-600">
-          Sube un <b>Excel (.xlsx)</b> o <b>CSV</b> con el estado de cada
-          televisor. Se fija el estado y, para los que cambian, se{' '}
-          <b>sincroniza el portal WhaleTV</b> automáticamente.
-        </p>
-
-        <div className="mb-4 overflow-x-auto">
-          <table className="w-full border border-gray-200 text-sm">
-            <thead>
-              <tr className="bg-gray-50">
-                <th className="border border-gray-200 px-3 py-2 text-left">Columna</th>
-                <th className="border border-gray-200 px-3 py-2 text-left">Ejemplo</th>
-                <th className="border border-gray-200 px-3 py-2 text-left">Obligatoria</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td className="border border-gray-200 px-3 py-2">mac_address</td>
-                <td className="border border-gray-200 px-3 py-2">B4:04:29:7E:3A:AA</td>
-                <td className="border border-gray-200 px-3 py-2">Sí</td>
-              </tr>
-              <tr>
-                <td className="border border-gray-200 px-3 py-2">estado</td>
-                <td className="border border-gray-200 px-3 py-2">habilitado / inhabilitado</td>
-                <td className="border border-gray-200 px-3 py-2">Sí</td>
-              </tr>
-              <tr>
-                <td className="border border-gray-200 px-3 py-2">serial_number</td>
-                <td className="border border-gray-200 px-3 py-2">B4:04:29:7E:3A:AA</td>
-                <td className="border border-gray-200 px-3 py-2">No</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        {error && <div className="msg msg-error">{error}</div>}
-
-        <form onSubmit={onSubmit} className="space-y-4">
-          <input
-            ref={inputRef}
-            type="file"
-            accept=".csv,.xlsx,.xls"
-            required
-            className="block text-sm"
-          />
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="submit"
-              className="btn btn-primary"
-              disabled={subiendo || enProgreso}
-            >
-              {subiendo
-                ? 'Importando…'
-                : enProgreso
-                  ? 'Sincronizando…'
-                  : 'Importar y sincronizar'}
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost"
-              onClick={descargarPlantilla}
-              disabled={descargando}
-            >
-              {descargando ? 'Descargando…' : 'Descargar plantilla Excel'}
-            </button>
-            <Link to="/televisores" className="btn btn-ghost">
-              Volver
-            </Link>
+      <Card>
+        <CardHeader className="border-b pb-4">
+          <CardTitle>Subir archivo</CardTitle>
+          <CardDescription>
+            Sube un <b>Excel (.xlsx)</b> o <b>CSV</b> con el estado de cada televisor. Se
+            fija el estado y, para los que cambian, se sincroniza el portal remoto
+            automáticamente.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-5">
+          {/* Especificación de columnas */}
+          <div className="overflow-hidden rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Columna</TableHead>
+                  <TableHead>Ejemplo</TableHead>
+                  <TableHead>Obligatoria</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {COLUMNAS.map((c) => (
+                  <TableRow key={c.columna}>
+                    <TableCell className="font-mono text-foreground">{c.columna}</TableCell>
+                    <TableCell className="text-muted-foreground">{c.ejemplo}</TableCell>
+                    <TableCell>
+                      {c.obligatoria ? (
+                        <Badge
+                          variant="outline"
+                          className="border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                        >
+                          Sí
+                        </Badge>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">No</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
-        </form>
-      </div>
-    </>
+
+          {error && (
+            <Alert variant="destructive">
+              <CircleAlert />
+              <AlertTitle>No se pudo procesar</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          <form onSubmit={onSubmit} className="flex flex-col gap-4">
+            {/* Zona de carga */}
+            <label
+              htmlFor="archivo"
+              className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border bg-muted/20 px-6 py-8 text-center transition-colors hover:border-primary/50 hover:bg-muted/40"
+            >
+              <span className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+                {fileName ? (
+                  <FileSpreadsheet className="size-6" />
+                ) : (
+                  <UploadCloud className="size-6" />
+                )}
+              </span>
+              {fileName ? (
+                <>
+                  <span className="text-sm font-medium text-foreground">{fileName}</span>
+                  <span className="text-xs text-muted-foreground">
+                    Haz clic para cambiar el archivo
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="text-sm font-medium text-foreground">
+                    Haz clic para seleccionar un archivo
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    Excel (.xlsx) o CSV
+                  </span>
+                </>
+              )}
+              <input
+                id="archivo"
+                ref={inputRef}
+                type="file"
+                accept=".csv,.xlsx,.xls"
+                className="sr-only"
+                onChange={(e) => setFileName(e.target.files?.[0]?.name ?? null)}
+              />
+            </label>
+
+            <div className="flex flex-wrap gap-2">
+              <Button type="submit" disabled={subiendo || enProgreso}>
+                {(subiendo || enProgreso) && (
+                  <Loader2 className="animate-spin" data-icon="inline-start" />
+                )}
+                {subiendo
+                  ? 'Importando…'
+                  : enProgreso
+                    ? 'Sincronizando…'
+                    : 'Importar y sincronizar'}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={descargarPlantilla}
+                disabled={descargando}
+              >
+                {descargando ? (
+                  <Loader2 className="animate-spin" data-icon="inline-start" />
+                ) : (
+                  <Download data-icon="inline-start" />
+                )}
+                {descargando ? 'Descargando…' : 'Descargar plantilla Excel'}
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
   )
 }

@@ -20,11 +20,11 @@ User = get_user_model()
 
 
 class MeUpdateSerializer(serializers.ModelSerializer):
-    """Edición del propio perfil: solo datos personales (sin rol ni permisos)."""
+    """Edición del propio perfil: datos personales y preferencias (sin rol/permisos)."""
 
     class Meta:
         model = User
-        fields = ('first_name', 'last_name')
+        fields = ('first_name', 'last_name', 'accent')
 
     def update(self, instance: User, validated_data: dict) -> User:
         return user_update(user=instance, data=validated_data)
@@ -68,6 +68,7 @@ class UserSerializer(serializers.ModelSerializer):
             'role_display',
             'is_active',
             'date_joined',
+            'accent',
         )
         read_only_fields = fields
 

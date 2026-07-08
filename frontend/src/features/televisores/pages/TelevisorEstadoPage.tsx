@@ -1,10 +1,49 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import {
+  ArrowLeft,
+  Ban,
+  CircleAlert,
+  CircleCheck,
+  CircleX,
+  Clock,
+  Loader2,
+  Lock,
+  SlidersHorizontal,
+  Unlock,
+} from 'lucide-react'
 import { televisoresApi } from '@/features/televisores/api/televisores.api'
-import type {
-  SyncJobRecord,
-  Televisor,
-} from '@/features/televisores/types'
+import type { SyncJobRecord, Televisor } from '@/features/televisores/types'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Progress } from '@/components/ui/progress'
+import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { cn } from '@/lib/utils'
 
 function fecha(iso: string | null): string {
   if (!iso) return '—'
@@ -18,6 +57,44 @@ function fecha(iso: string | null): string {
         hour: '2-digit',
         minute: '2-digit',
       })
+}
+
+function EstadoBadge({ inhabilitado }: { inhabilitado: boolean }) {
+  return inhabilitado ? (
+    <Badge variant="destructive">
+      <Ban /> Inhabilitado
+    </Badge>
+  ) : (
+    <Badge
+      variant="outline"
+      className="border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+    >
+      <CircleCheck /> Habilitado
+    </Badge>
+  )
+}
+
+function ResultadoBadge({ estado }: { estado: SyncJobRecord['estado'] }) {
+  if (estado === 'terminado')
+    return (
+      <Badge
+        variant="outline"
+        className="border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+      >
+        <CircleCheck /> Aplicado
+      </Badge>
+    )
+  if (estado === 'error')
+    return (
+      <Badge variant="destructive">
+        <CircleX /> Error
+      </Badge>
+    )
+  return (
+    <Badge variant="secondary">
+      <Clock /> En proceso
+    </Badge>
+  )
 }
 
 type SyncPhase = 'idle' | 'running' | 'ok' | 'error'
@@ -94,10 +171,10 @@ export function TelevisorEstadoPage() {
             setSync({
               phase: 'ok',
               pct: 100,
-              titulo: '✓ Completado',
+              titulo: 'Cambio aplicado',
               texto: inhabilitar
-                ? 'Televisor inhabilitado (bloqueado) en el portal WhaleTV.'
-                : 'Televisor habilitado (desbloqueado) en el portal WhaleTV.',
+                ? 'Televisor inhabilitado (bloqueado) en el portal remoto.'
+                : 'Televisor habilitado (desbloqueado) en el portal remoto.',
             })
           } else {
             setSync({
@@ -122,7 +199,7 @@ export function TelevisorEstadoPage() {
       phase: 'running',
       pct: 5,
       titulo: 'Sincronizando con el portal',
-      texto: 'Aplicando el cambio en el portal WhaleTV…',
+      texto: 'Aplicando el cambio en el portal remoto…',
     })
     try {
       const launch = await televisoresApi.setEstado(id, inhabilitar)
@@ -139,163 +216,237 @@ export function TelevisorEstadoPage() {
   }
 
   if (loading) {
-    return <div className="card py-12 text-center text-gray-400">Cargando…</div>
+    return (
+      <div className="mx-auto flex max-w-4xl flex-col gap-5">
+        <Skeleton className="h-8 w-44" />
+        <Card>
+          <CardHeader className="border-b pb-4">
+            <Skeleton className="h-5 w-40" />
+          </CardHeader>
+          <CardContent className="flex gap-3">
+            <Skeleton className="h-9 w-32" />
+            <Skeleton className="h-9 w-24" />
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   if (error || !tv) {
     return (
-      <div className="card">
-        <div className="msg msg-error">{error ?? 'Televisor no encontrado.'}</div>
-        <Link to="/televisores" className="btn btn-ghost">
-          ← Volver
-        </Link>
+      <div className="mx-auto flex max-w-4xl flex-col gap-4">
+        <Alert variant="destructive">
+          <CircleAlert />
+          <AlertTitle>No se pudo cargar</AlertTitle>
+          <AlertDescription>{error ?? 'Televisor no encontrado.'}</AlertDescription>
+        </Alert>
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-fit"
+          render={<Link to="/televisores" />}
+        >
+          <ArrowLeft data-icon="inline-start" /> Volver
+        </Button>
       </div>
     )
   }
 
   const ejecutando = sync.phase === 'running'
+  const objetivoInhabilitar = seleccion === 'inhabilitado'
+  const sinCambios = objetivoInhabilitar === tv.inhabilitado
 
   return (
-    <>
+    <div className="mx-auto flex max-w-4xl flex-col gap-5">
       {/* Encabezado */}
-      <div className="card mb-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="mb-1 text-xl font-bold text-gray-800">Estado del televisor</h2>
-            <div className="text-sm text-gray-500">
-              <b className="text-gray-800">{tv.mac_address}</b> · Estado actual:{' '}
-              {tv.inhabilitado ? (
-                <span className="pill pill-lock">Inhabilitado</span>
-              ) : (
-                <span className="pill pill-unlock">Habilitado</span>
-              )}
+      <div className="flex flex-col gap-3">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="-ml-2 w-fit text-muted-foreground"
+          render={<Link to={`/televisores/${tv.id}`} />}
+        >
+          <ArrowLeft data-icon="inline-start" /> Volver al detalle
+        </Button>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <SlidersHorizontal className="size-5" />
+          </span>
+          <div className="flex flex-col gap-1">
+            <h1 className="text-lg font-bold text-foreground">Estado del televisor</h1>
+            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+              <span className="font-mono text-foreground">{tv.mac_address}</span>
+              <span>·</span>
+              <EstadoBadge inhabilitado={tv.inhabilitado} />
             </div>
           </div>
-          <Link to={`/televisores/${tv.id}`} className="btn btn-ghost">
-            ← Volver al detalle
-          </Link>
         </div>
       </div>
 
       {/* Registrar estado */}
-      <div className="card mb-5">
-        <h3 className="mb-1 text-base font-bold text-gray-800">Registrar estado</h3>
-        <p className="mb-4 text-sm text-gray-500">
-          Al guardar se aplica el cambio en el portal WhaleTV.
-        </p>
-        <form onSubmit={guardar} className="flex flex-wrap items-end gap-3">
-          <div>
-            <label className="lbl" htmlFor="estado">
-              Estado
-            </label>
-            <select
-              id="estado"
-              className="inp"
-              value={seleccion}
-              onChange={(e) =>
-                setSeleccion(e.target.value as 'habilitado' | 'inhabilitado')
-              }
+      <Card>
+        <CardHeader className="border-b pb-4">
+          <CardTitle>Registrar estado</CardTitle>
+          <CardDescription>
+            Al guardar se aplica el cambio en el portal remoto.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={guardar} className="flex flex-col gap-5">
+            <ToggleGroup
+              value={[seleccion]}
+              onValueChange={(v) => {
+                const next = v[0] as 'habilitado' | 'inhabilitado' | undefined
+                if (next) setSeleccion(next)
+              }}
+              variant="outline"
+              size="lg"
+              spacing={0}
               disabled={ejecutando}
+              className="w-full max-w-md"
             >
-              <option value="habilitado">Habilitado</option>
-              <option value="inhabilitado">Inhabilitado</option>
-            </select>
-          </div>
-          <button type="submit" className="btn btn-primary" disabled={ejecutando}>
-            Guardar
-          </button>
-        </form>
-      </div>
+              <ToggleGroupItem
+                value="habilitado"
+                className="flex-1 data-[state=on]:border-emerald-500/40 data-[state=on]:bg-emerald-500/10 data-[state=on]:text-emerald-600 dark:data-[state=on]:text-emerald-400"
+              >
+                <Unlock data-icon="inline-start" /> Habilitado
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="inhabilitado"
+                className="flex-1 data-[state=on]:border-destructive/40 data-[state=on]:bg-destructive/10 data-[state=on]:text-destructive"
+              >
+                <Lock data-icon="inline-start" /> Inhabilitado
+              </ToggleGroupItem>
+            </ToggleGroup>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <Button type="submit" disabled={ejecutando || sinCambios}>
+                {ejecutando && <Loader2 className="animate-spin" data-icon="inline-start" />}
+                {ejecutando ? 'Sincronizando…' : 'Guardar y sincronizar'}
+              </Button>
+              {sinCambios && (
+                <span className="text-xs text-muted-foreground">
+                  El televisor ya está {objetivoInhabilitar ? 'inhabilitado' : 'habilitado'}.
+                </span>
+              )}
+            </div>
+          </form>
+        </CardContent>
+      </Card>
 
       {/* Histórico de cambios */}
-      <div className="card overflow-hidden !p-0">
-        {historial.length > 0 ? (
-          <table className="w-full">
-            <thead>
-              <tr>
-                <th className="th">Fecha</th>
-                <th className="th">Estado</th>
-                <th className="th">Resultado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {historial.map((h) => (
-                <tr key={h.id} className="hover:bg-gray-50">
-                  <td className="td">{fecha(h.creado)}</td>
-                  <td className="td">
-                    {h.inhabilitar ? (
-                      <span className="pill pill-lock">Inhabilitado</span>
-                    ) : (
-                      <span className="pill pill-unlock">Habilitado</span>
-                    )}
-                  </td>
-                  <td className="td">
-                    {h.estado === 'terminado' ? (
-                      <span className="pill pill-ok">Aplicado</span>
-                    ) : h.estado === 'error' ? (
-                      <span className="pill pill-lock">Error</span>
-                    ) : (
-                      <span className="pill pill-due">En proceso</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <div className="py-10 text-center text-gray-400">
-            Aún no hay cambios de estado registrados.
-          </div>
-        )}
-      </div>
+      <Card>
+        <CardHeader className="border-b pb-4">
+          <CardTitle>Histórico de cambios</CardTitle>
+          <CardDescription>
+            Registro de sincronizaciones de estado con el portal.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {historial.length > 0 ? (
+            <div className="overflow-hidden rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Fecha</TableHead>
+                    <TableHead>Estado</TableHead>
+                    <TableHead>Resultado</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {historial.map((h) => (
+                    <TableRow key={h.id}>
+                      <TableCell className="text-muted-foreground">
+                        {fecha(h.creado)}
+                      </TableCell>
+                      <TableCell>
+                        <EstadoBadge inhabilitado={h.inhabilitar} />
+                      </TableCell>
+                      <TableCell>
+                        <ResultadoBadge estado={h.estado} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-2 py-10 text-center">
+              <Clock className="size-8 text-muted-foreground/60" />
+              <p className="text-sm text-muted-foreground">
+                Aún no hay cambios de estado registrados.
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Modal de progreso (polling real) */}
-      {sync.phase !== 'idle' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="card w-full max-w-md text-center">
-            <h3
-              className={`mb-1 text-lg font-bold ${
+      <Dialog
+        open={sync.phase !== 'idle'}
+        onOpenChange={(open) => {
+          if (!open && !ejecutando) setSync(SYNC_IDLE)
+        }}
+        dismissible={!ejecutando}
+      >
+        <DialogContent showCloseButton={false} className="sm:max-w-md">
+          <DialogHeader className="items-center text-center">
+            <span
+              className={cn(
+                'flex size-14 items-center justify-center rounded-full',
                 sync.phase === 'ok'
-                  ? 'text-emerald-600'
+                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
                   : sync.phase === 'error'
-                    ? 'text-rose-600'
-                    : 'text-gray-800'
-              }`}
+                    ? 'bg-destructive/10 text-destructive'
+                    : 'bg-primary/10 text-primary',
+              )}
             >
-              {sync.titulo}
-            </h3>
+              {sync.phase === 'running' && <Loader2 className="size-7 animate-spin" />}
+              {sync.phase === 'ok' && <CircleCheck className="size-7" />}
+              {sync.phase === 'error' && <CircleX className="size-7" />}
+            </span>
+            <DialogTitle>{sync.titulo}</DialogTitle>
+            <DialogDescription className="sr-only">
+              Progreso de la sincronización con el portal.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col items-center gap-4">
             <div
-              className={`my-4 text-5xl font-extrabold tabular-nums ${
-                sync.phase === 'error' ? 'text-rose-600' : 'text-whale'
-              }`}
+              className={cn(
+                'text-5xl font-extrabold tabular-nums transition-colors',
+                sync.phase === 'error'
+                  ? 'text-destructive'
+                  : sync.phase === 'ok'
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-primary',
+              )}
             >
               {Math.round(sync.pct)}%
             </div>
-            <div className="h-3 w-full overflow-hidden rounded-full bg-gray-100">
-              <div
-                className={`h-full rounded-full transition-all duration-300 ${
-                  sync.phase === 'error'
-                    ? 'bg-rose-500'
-                    : 'bg-gradient-to-r from-whale to-whale-dark'
-                }`}
-                style={{ width: `${sync.pct}%` }}
-              />
-            </div>
+            <Progress
+              value={sync.pct}
+              className={cn(
+                'w-full [&_[data-slot=progress-track]]:h-2.5',
+                sync.phase === 'error' &&
+                  '[&_[data-slot=progress-indicator]]:bg-destructive',
+                sync.phase === 'ok' &&
+                  '[&_[data-slot=progress-indicator]]:bg-emerald-500',
+              )}
+            />
             {sync.phase !== 'running' && (
-              <>
-                <p className="mt-4 text-sm text-gray-500">{sync.texto}</p>
-                <button
-                  type="button"
-                  className="btn btn-primary mt-4"
-                  onClick={() => setSync(SYNC_IDLE)}
-                >
-                  Cerrar
-                </button>
-              </>
+              <p className="text-center text-sm text-muted-foreground">{sync.texto}</p>
             )}
           </div>
-        </div>
-      )}
-    </>
+
+          {!ejecutando && (
+            <DialogFooter>
+              <Button onClick={() => setSync(SYNC_IDLE)}>Cerrar</Button>
+            </DialogFooter>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }

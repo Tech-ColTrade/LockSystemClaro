@@ -1,8 +1,14 @@
-// Chrome de la aplicación autenticada: sidebar fijo + área de contenido con
-// barra de breadcrumb. Las páginas se renderizan en el <Outlet />.
+// Chrome de la aplicación autenticada: sidebar shadcn (SidebarProvider) + área de
+// contenido (SidebarInset) con barra superior de trigger + breadcrumb.
 
 import { Outlet, useMatches } from 'react-router-dom'
-import { Sidebar } from '@/shared/layout/Sidebar'
+import { AppSidebar } from '@/shared/layout/Sidebar'
+import { Separator } from '@/components/ui/separator'
+import {
+  SidebarInset,
+  SidebarProvider,
+  SidebarTrigger,
+} from '@/components/ui/sidebar'
 
 interface RouteHandle {
   breadcrumb?: string
@@ -18,18 +24,18 @@ export function DashboardLayout() {
       .find(Boolean) ?? 'Inicio'
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <Sidebar />
-
-      <main className="min-w-0 flex-1 overflow-y-auto">
-        <div className="sticky top-0 z-10 border-b border-gray-100 bg-[#f4f5f7]/80 px-8 py-4 text-sm text-gray-500 backdrop-blur dark:bg-[#131316]/80">
-          <span className="font-medium text-whale">{breadcrumb}</span>
-        </div>
-
-        <div className="px-8 py-7">
+    <SidebarProvider>
+      <AppSidebar />
+      <SidebarInset>
+        <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b bg-background/80 px-4 backdrop-blur">
+          <SidebarTrigger className="-ml-1" />
+          <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
+          <span className="text-sm font-medium text-whale">{breadcrumb}</span>
+        </header>
+        <div className="flex-1 p-6">
           <Outlet />
         </div>
-      </main>
-    </div>
+      </SidebarInset>
+    </SidebarProvider>
   )
 }

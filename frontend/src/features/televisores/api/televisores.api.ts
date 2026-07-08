@@ -57,7 +57,7 @@ export const televisoresApi = {
     })
   },
 
-  // --- Estado + sincronización con el portal WhaleTV (segundo plano) ---
+  // --- Estado + sincronización con el portal remoto (segundo plano) ---
   // Guarda el estado local y lanza el job de sincronización. Devuelve el job.
   setEstado: (id: number | string, inhabilitar: boolean) =>
     apiFetch<SyncLaunch>(`/api/televisores/${id}/estado/`, {

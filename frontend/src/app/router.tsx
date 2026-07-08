@@ -11,7 +11,6 @@ import { ProtectedRoute } from '@/features/auth/components/ProtectedRoute'
 import { RequireRole } from '@/features/auth/components/RequireRole'
 import { canOperate, isAdmin } from '@/features/auth/permissions'
 import { LoginPage } from '@/features/auth/pages/LoginPage'
-import { HomePage } from '@/features/home/pages/HomePage'
 import { TelevisoresPage } from '@/features/televisores/pages/TelevisoresPage'
 import { TelevisorFormPage } from '@/features/televisores/pages/TelevisorFormPage'
 import { TelevisorImportPage } from '@/features/televisores/pages/TelevisorImportPage'
@@ -36,16 +35,18 @@ export const router = createBrowserRouter([
         element: <DashboardLayout />,
         children: [
           // --- Lectura: cualquier usuario autenticado (incluido Consulta) ---
-          { path: '/', element: <HomePage />, handle: { breadcrumb: 'Inicio' } },
           {
+            // El dashboard es la página de inicio (raíz).
             // Carga diferida: recharts solo se descarga al entrar al dashboard.
-            path: '/dashboard',
+            path: '/',
             lazy: async () => ({
               Component: (await import('@/features/dashboard/pages/DashboardPage'))
                 .DashboardPage,
             }),
             handle: { breadcrumb: 'Dashboard' },
           },
+          // Compatibilidad: la antigua URL /dashboard redirige a la raíz.
+          { path: '/dashboard', element: <Navigate to="/" replace /> },
           {
             path: '/televisores',
             element: <TelevisoresPage />,

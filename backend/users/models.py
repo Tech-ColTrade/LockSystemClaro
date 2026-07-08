@@ -64,6 +64,18 @@ class User(AbstractBaseUser, PermissionsMixin):
     date_joined = models.DateTimeField(_('fecha de registro'), default=timezone.now)
     updated_at = models.DateTimeField(_('última actualización'), auto_now=True)
 
+    # Preferencia de interfaz: color de acento elegido por el usuario. Se guarda
+    # aquí (no solo en el navegador) para que la app arranque siempre con su
+    # último color en cualquier dispositivo. El catálogo de acentos vive en el
+    # front; aquí solo persistimos la clave elegida (p. ej. 'neutro', 'rosa').
+    accent = models.CharField(
+        _('color de acento'),
+        max_length=20,
+        default='neutro',
+        blank=True,
+        help_text=_('Preferencia de color de acento de la interfaz.'),
+    )
+
     # Revocación server-side de tokens (logout real): los JWT llevan la versión
     # con la que se emitieron (claim `tv`). Al cerrar sesión se incrementa este
     # contador y todos los tokens anteriores dejan de validar. Es exacto (sin la

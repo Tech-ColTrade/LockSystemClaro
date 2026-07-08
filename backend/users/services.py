@@ -49,7 +49,7 @@ def user_set_password(*, user: User, raw_password: str) -> User:
 @transaction.atomic
 def user_update(*, user: User, data: dict) -> User:
     """Actualiza campos permitidos de un usuario existente."""
-    updatable_fields = {'first_name', 'last_name', 'role', 'is_active'}
+    updatable_fields = {'first_name', 'last_name', 'role', 'is_active', 'accent'}
     changed = []
 
     for field, value in data.items():

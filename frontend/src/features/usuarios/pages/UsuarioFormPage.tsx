@@ -1,10 +1,25 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { CircleAlert, Loader2 } from 'lucide-react'
 import { usuariosApi } from '@/features/usuarios/api/usuarios.api'
 import { ROLE_LABELS } from '@/features/auth/permissions'
 import { usePermissions } from '@/features/auth/usePermissions'
 import type { Role } from '@/features/auth/types'
 import { ApiError } from '@/lib/http/errors'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Switch } from '@/components/ui/switch'
 
 const ROLES: Role[] = ['admin', 'operador', 'consulta']
 
@@ -33,6 +48,11 @@ function parseErrors(err: unknown): {
     return { fields, general }
   }
   return { fields: {}, general: (err as Error)?.message ?? 'Error inesperado.' }
+}
+
+function FieldError({ msg }: { msg?: string }) {
+  if (!msg) return null
+  return <p className="text-xs text-destructive">{msg}</p>
 }
 
 export function UsuarioFormPage() {
@@ -109,154 +129,155 @@ export function UsuarioFormPage() {
 
   if (loading) {
     return (
-      <div className="card max-w-xl py-12 text-center text-gray-400">Cargando…</div>
+      <div className="mx-auto max-w-xl">
+        <Card>
+          <CardContent className="space-y-4 py-6">
+            <Skeleton className="h-6 w-40" />
+            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-9 w-full" />
+          </CardContent>
+        </Card>
+      </div>
     )
   }
 
   return (
-    <div className="card max-w-xl">
-      <h2 className="mb-5 text-xl font-bold text-gray-800">
-        {isEdit ? 'Editar usuario' : 'Nuevo usuario'}
-      </h2>
-
-      <form onSubmit={onSubmit} noValidate className="space-y-4">
-        {general && <div className="msg msg-error">{general}</div>}
-
-        <div>
-          <label className="lbl" htmlFor="email">
-            Correo electrónico {!isEdit && <span className="text-red-600">*</span>}
-          </label>
-          <input
-            id="email"
-            type="email"
-            className="inp"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="usuario@claro.com"
-            autoFocus={!isEdit}
-            required={!isEdit}
-            disabled={isEdit}
-          />
-          {fieldErrors.email && (
-            <p className="mt-1 text-xs text-red-600">{fieldErrors.email}</p>
-          )}
-        </div>
-
-        {!isEdit && (
-          <div>
-            <label className="lbl" htmlFor="password">
-              Contraseña <span className="text-red-600">*</span>
-            </label>
-            <input
-              id="password"
-              type="password"
-              className="inp"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Mínimo 10 caracteres"
-              autoComplete="new-password"
-              required
-            />
-            {fieldErrors.password && (
-              <p className="mt-1 text-xs text-red-600">{fieldErrors.password}</p>
+    <div className="mx-auto max-w-xl">
+      <Card>
+        <CardHeader className="border-b pb-4">
+          <CardTitle>{isEdit ? 'Editar usuario' : 'Nuevo usuario'}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={onSubmit} noValidate className="space-y-5">
+            {general && (
+              <Alert variant="destructive">
+                <CircleAlert />
+                <AlertTitle>No se pudo guardar</AlertTitle>
+                <AlertDescription>{general}</AlertDescription>
+              </Alert>
             )}
-          </div>
-        )}
 
-        <div className="flex gap-4">
-          <div className="flex-1">
-            <label className="lbl" htmlFor="first_name">
-              Nombres
-            </label>
-            <input
-              id="first_name"
-              className="inp"
-              value={firstName}
-              onChange={(e) => setFirstName(e.target.value)}
-            />
-            {fieldErrors.first_name && (
-              <p className="mt-1 text-xs text-red-600">{fieldErrors.first_name}</p>
-            )}
-          </div>
-          <div className="flex-1">
-            <label className="lbl" htmlFor="last_name">
-              Apellidos
-            </label>
-            <input
-              id="last_name"
-              className="inp"
-              value={lastName}
-              onChange={(e) => setLastName(e.target.value)}
-            />
-            {fieldErrors.last_name && (
-              <p className="mt-1 text-xs text-red-600">{fieldErrors.last_name}</p>
-            )}
-          </div>
-        </div>
-
-        <div>
-          <label className="lbl" htmlFor="role">
-            Rol <span className="text-red-600">*</span>
-          </label>
-          <select
-            id="role"
-            className="inp"
-            value={role}
-            onChange={(e) => setRole(e.target.value as Role)}
-            disabled={isSelf}
-          >
-            {ROLES.map((r) => (
-              <option key={r} value={r}>
-                {ROLE_LABELS[r]}
-              </option>
-            ))}
-          </select>
-          <p className="mt-1 text-xs text-gray-500">{ROLE_HINT[role]}</p>
-          {isSelf && (
-            <p className="mt-1 text-xs text-amber-600">
-              No puedes cambiar tu propio rol.
-            </p>
-          )}
-          {fieldErrors.role && (
-            <p className="mt-1 text-xs text-red-600">{fieldErrors.role}</p>
-          )}
-        </div>
-
-        {isEdit && (
-          <div>
-            <label className="flex items-center gap-2 text-sm text-gray-700">
-              <input
-                type="checkbox"
-                checked={isActive}
-                onChange={(e) => setIsActive(e.target.checked)}
-                disabled={isSelf}
+            <div className="grid gap-2">
+              <Label htmlFor="email">Correo electrónico</Label>
+              <Input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="usuario@claro.com"
+                autoFocus={!isEdit}
+                required={!isEdit}
+                disabled={isEdit}
               />
-              Cuenta activa
-            </label>
-            {isSelf && (
-              <p className="mt-1 text-xs text-amber-600">
-                No puedes desactivar tu propia cuenta.
-              </p>
-            )}
-            {fieldErrors.is_active && (
-              <p className="mt-1 text-xs text-red-600">{fieldErrors.is_active}</p>
-            )}
-          </div>
-        )}
+              {isEdit && (
+                <p className="text-xs text-muted-foreground">
+                  El correo no se puede cambiar.
+                </p>
+              )}
+              <FieldError msg={fieldErrors.email} />
+            </div>
 
-        <div className="flex gap-2 pt-2">
-          <button type="submit" className="btn btn-primary" disabled={saving}>
-            {saving ? 'Guardando…' : 'Guardar'}
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={() => navigate('/usuarios')}
-          >
-            Cancelar
-          </button>
-        </div>
-      </form>
+            {!isEdit && (
+              <div className="grid gap-2">
+                <Label htmlFor="password">Contraseña</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Mínimo 10 caracteres"
+                  autoComplete="new-password"
+                  required
+                />
+                <FieldError msg={fieldErrors.password} />
+              </div>
+            )}
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-2">
+                <Label htmlFor="first_name">Nombres</Label>
+                <Input
+                  id="first_name"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                />
+                <FieldError msg={fieldErrors.first_name} />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="last_name">Apellidos</Label>
+                <Input
+                  id="last_name"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                />
+                <FieldError msg={fieldErrors.last_name} />
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="role">Rol</Label>
+              <Select
+                value={role}
+                onValueChange={(v) => setRole(v as Role)}
+                disabled={isSelf}
+              >
+                <SelectTrigger id="role" className="w-full">
+                  <SelectValue>{(v: string) => ROLE_LABELS[v as Role]}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {ROLES.map((r) => (
+                    <SelectItem key={r} value={r}>
+                      {ROLE_LABELS[r]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">{ROLE_HINT[role]}</p>
+              {isSelf && (
+                <p className="text-xs text-muted-foreground">
+                  No puedes cambiar tu propio rol.
+                </p>
+              )}
+              <FieldError msg={fieldErrors.role} />
+            </div>
+
+            {isEdit && (
+              <div className="grid gap-2">
+                <div className="flex items-center gap-2.5">
+                  <Switch
+                    id="is_active"
+                    checked={isActive}
+                    onCheckedChange={setIsActive}
+                    disabled={isSelf}
+                  />
+                  <Label htmlFor="is_active">Cuenta activa</Label>
+                </div>
+                {isSelf && (
+                  <p className="text-xs text-muted-foreground">
+                    No puedes desactivar tu propia cuenta.
+                  </p>
+                )}
+                <FieldError msg={fieldErrors.is_active} />
+              </div>
+            )}
+
+            <div className="flex gap-2 pt-1">
+              <Button type="submit" disabled={saving}>
+                {saving && <Loader2 className="animate-spin" />}
+                {saving ? 'Guardando…' : 'Guardar'}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => navigate('/usuarios')}
+              >
+                Cancelar
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   )
 }

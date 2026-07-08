@@ -1,6 +1,7 @@
-// Paleta de los gráficos, con pasos validados para superficie clara y oscura
-// (script validate_palette de la skill dataviz). Los colores de "estado"
-// (bien/advertencia/crítico) siempre se acompañan de etiqueta y leyenda.
+// Paleta de los gráficos — MONOCROMÁTICA (estilo shadcn neutro). En vez de hues
+// (verde/ámbar/rojo/azul) usamos una rampa de GRISES con distinta luminosidad, así
+// las series siguen siendo distinguibles pero el dashboard se ve neutro. Es un
+// enfoque secuencial válido (mismo tono, claro→oscuro), no categórico por color.
 
 import { useIsDark } from '@/shared/hooks/useIsDark'
 
@@ -10,11 +11,11 @@ export interface ChartColors {
   muted: string
   grid: string
   axis: string
-  // Categóricos CVD-safe (serie temporal, discriminadores).
+  // "Categóricos": grises con luminosidad distinta (no colores).
   blue: string
   orange: string
   neutral: string
-  // Estado (outcome): siempre con etiqueta/leyenda.
+  // Estado (outcome): también en grises, la identidad la da la leyenda/etiqueta.
   good: string
   warning: string
   critical: string
@@ -22,30 +23,30 @@ export interface ChartColors {
 
 const LIGHT: ChartColors = {
   surface: '#ffffff',
-  text: '#52514e',
-  muted: '#898781',
-  grid: '#e1e0d9',
-  axis: '#c3c2b7',
-  blue: '#2a78d6',
-  orange: '#eb6834',
-  neutral: '#9aa0a6',
-  good: '#0ca30c',
-  warning: '#e0900a',
-  critical: '#d03b3b',
+  text: '#3f3f46',
+  muted: '#71717a',
+  grid: '#e4e4e7',
+  axis: '#d4d4d8',
+  blue: '#3f3f46', // serie 1 (oscuro)
+  orange: '#a1a1aa', // serie 2 (medio)
+  neutral: '#d4d4d8', // secundario (claro)
+  good: '#52525b',
+  warning: '#a1a1aa',
+  critical: '#d4d4d8',
 }
 
 const DARK: ChartColors = {
-  surface: '#1d1d22',
-  text: '#c3c2b7',
+  surface: '#262626',
+  text: '#d4d4d8',
   muted: '#a1a1aa',
-  grid: '#2c2c2a',
-  axis: '#383835',
-  blue: '#3987e5',
-  orange: '#d95926',
-  neutral: '#7b8085',
-  good: '#0ca30c',
-  warning: '#fab219',
-  critical: '#e66767',
+  grid: '#3a3a3e',
+  axis: '#4a4a4f',
+  blue: '#e4e4e7', // serie 1 (claro, prominente)
+  orange: '#a1a1aa', // serie 2 (medio)
+  neutral: '#52525b', // secundario (oscuro)
+  good: '#d4d4d8',
+  warning: '#a1a1aa',
+  critical: '#6b6b72',
 }
 
 export function useChartColors(): ChartColors {
