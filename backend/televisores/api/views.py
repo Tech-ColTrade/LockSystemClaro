@@ -322,12 +322,11 @@ class TelevisorViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'])
     def sincronizaciones(self, request, pk=None):
         """Historial de sincronizaciones de ESTE televisor (paginado)."""
-        from .registros import construir_sincronizaciones
+        from .registros import _fila, qs_sincronizaciones
 
-        tv = self.get_object()
-        filas = construir_sincronizaciones(televisor=tv)
-        page = self.paginate_queryset(filas)
-        return self.get_paginated_response(page)
+        qs = qs_sincronizaciones(televisor=self.get_object())
+        page = self.paginate_queryset(qs)
+        return self.get_paginated_response([_fila(r) for r in page])
 
     @action(detail=True, methods=['get'], url_path='pincodes-usados')
     def pincodes_usados(self, request, pk=None):
@@ -340,6 +339,20 @@ class TelevisorViewSet(viewsets.ModelViewSet):
         return self.get_paginated_response(
             PinCodeUsadoSerializer(page, many=True).data
         )
+
+    @action(detail=True, methods=['get'], url_path='exportar-sincronizaciones')
+    def exportar_sincronizaciones_tv(self, request, pk=None):
+        """Excel con TODAS las sincronizaciones de ESTE televisor (sin paginar)."""
+        from televisores.api.exports import exportar_sincronizaciones
+
+        return exportar_sincronizaciones(televisor=self.get_object())
+
+    @action(detail=True, methods=['get'], url_path='exportar-pincodes')
+    def exportar_pincodes_tv(self, request, pk=None):
+        """Excel con TODOS los Códigos Pin usados de ESTE televisor."""
+        from televisores.api.exports import exportar_pincodes
+
+        return exportar_pincodes(televisor=self.get_object())
 
     # ------------------------------------------------------------------
     # Enrolar Estado: cambio de estado masivo + sincronización al portal
@@ -393,12 +406,18 @@ class TelevisorViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='exportar-sincronizaciones')
     def exportar_sincronizaciones(self, request):
         from televisores.api.exports import exportar_sincronizaciones
-        return exportar_sincronizaciones()
+        return exportar_sincronizaciones(
+            request.query_params.get('desde'),
+            request.query_params.get('hasta'),
+        )
 
     @action(detail=False, methods=['get'], url_path='exportar-pincodes')
     def exportar_pincodes(self, request):
         from televisores.api.exports import exportar_pincodes
-        return exportar_pincodes()
+        return exportar_pincodes(
+            request.query_params.get('desde'),
+            request.query_params.get('hasta'),
+        )
 
     @action(detail=False, methods=['get'], url_path='plantilla-televisores')
     def plantilla_televisores(self, request):

@@ -10,6 +10,8 @@ selectores se basan en texto/atributos estables (no en los data-v-* dinámicos).
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 from dataclasses import dataclass, field
 
 from django.conf import settings
@@ -59,6 +61,29 @@ def _click(driver, el):
         driver.execute_script("arguments[0].click();", el)
 
 
+def _build_service() -> Service:
+    """Servicio de chromedriver, silencioso y sin ventana de consola.
+
+    En Windows, chromedriver arranca con una consola propia que aparece como un
+    recuadro negro por encima de todo, aunque Chrome vaya en headless. Se evita
+    con CREATE_NO_WINDOW, que hay que pasar dentro de `popen_kw`: el constructor
+    de Service lo saca de ahí (`popen_kw.pop('creation_flags')`), no lo acepta
+    como argumento suelto.
+    """
+    kwargs = {}
+
+    chromedriver = os.environ.get('CHROMEDRIVER')
+    if chromedriver:
+        kwargs['executable_path'] = chromedriver
+    # Sin executable_path, Selenium Manager resuelve el driver solo.
+
+    if sys.platform == 'win32':
+        kwargs['popen_kw'] = {'creation_flags': subprocess.CREATE_NO_WINDOW}
+
+    # Los logs del driver no aportan nada y ensucian la salida de gunicorn.
+    return Service(log_output=subprocess.DEVNULL, **kwargs)
+
+
 def _build_driver(headless: bool):
     options = Options()
     if headless:
@@ -78,11 +103,7 @@ def _build_driver(headless: bool):
     if chrome_bin:
         options.binary_location = chrome_bin
 
-    chromedriver = os.environ.get('CHROMEDRIVER')
-    if chromedriver:
-        return webdriver.Chrome(service=Service(executable_path=chromedriver), options=options)
-    # Selenium Manager descarga el driver automáticamente.
-    return webdriver.Chrome(options=options)
+    return webdriver.Chrome(service=_build_service(), options=options)
 
 
 def _login(driver, wait, cfg, res):

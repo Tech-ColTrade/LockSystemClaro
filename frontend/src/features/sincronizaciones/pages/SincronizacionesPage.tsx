@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   ChevronLeft,
   ChevronRight,
@@ -7,10 +7,12 @@ import {
   CircleX,
   Clock,
   Download,
+  X,
 } from 'lucide-react'
 import { registrosApi } from '@/features/televisores/api/registros.api'
 import { televisoresApi } from '@/features/televisores/api/televisores.api'
 import { usePaginatedList } from '@/shared/hooks/usePaginatedList'
+import { RangoFechas } from '@/shared/components/RangoFechas'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -64,20 +66,40 @@ function ResultadoBadge({ resultado }: { resultado: string }) {
 }
 
 export function SincronizacionesPage() {
-  const { items, count, page, setPage, loading, error } = usePaginatedList(
-    registrosApi.sincronizaciones,
+  const [desde, setDesde] = useState('')
+  const [hasta, setHasta] = useState('')
+
+  // useCallback: usePaginatedList tiene el fetcher como dependencia del efecto,
+  // así que sin memoizar recargaría en cada render.
+  const fetcher = useCallback(
+    (page: number) => registrosApi.sincronizaciones(page, { desde, hasta }),
+    [desde, hasta],
   )
+  const { items, count, page, setPage, loading, error } = usePaginatedList(fetcher)
+
   const [exportando, setExportando] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
 
   const totalPages = Math.max(1, Math.ceil(count / PAGE_SIZE))
   const pageError = error ?? exportError
+  const hayFiltro = Boolean(desde || hasta)
+
+  // Al cambiar el rango cambia el número de páginas: quedarse en la 5 de un
+  // resultado que ahora tiene 2 mostraría una tabla vacía.
+  useEffect(() => {
+    setPage(1)
+  }, [desde, hasta, setPage])
+
+  function limpiar() {
+    setDesde('')
+    setHasta('')
+  }
 
   async function exportar() {
     setExportError(null)
     setExportando(true)
     try {
-      await televisoresApi.exportarSincronizaciones()
+      await televisoresApi.exportarSincronizaciones({ desde, hasta })
     } catch (e) {
       setExportError((e as Error).message)
     } finally {
@@ -96,10 +118,29 @@ export function SincronizacionesPage() {
             Historial de cambios de estado sincronizados con el portal remoto.
           </p>
         </div>
-        <Button variant="outline" onClick={exportar} disabled={exportando}>
-          <Download data-icon="inline-start" />
-          {exportando ? 'Exportando...' : 'Sincronizaciones'}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <RangoFechas
+            desde={desde}
+            hasta={hasta}
+            setDesde={setDesde}
+            setHasta={setHasta}
+          />
+          {hayFiltro && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+              onClick={limpiar}
+            >
+              <X data-icon="inline-start" />
+              Limpiar
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={exportar} disabled={exportando}>
+            <Download data-icon="inline-start" />
+            {exportando ? 'Exportando...' : 'Sincronizaciones'}
+          </Button>
+        </div>
       </div>
 
       {pageError && (
@@ -108,6 +149,15 @@ export function SincronizacionesPage() {
           <AlertTitle>Ocurrió un problema</AlertTitle>
           <AlertDescription>{pageError}</AlertDescription>
         </Alert>
+      )}
+
+      {!loading && (
+        <p className="mb-3 text-xs text-muted-foreground">
+          {count === 0
+            ? 'Sin registros'
+            : `${count} registro${count === 1 ? '' : 's'}`}
+          {hayFiltro && ' en el rango seleccionado'} · la exportación incluye todos
+        </p>
       )}
 
       <Card className="gap-0 overflow-hidden p-0">
@@ -135,7 +185,9 @@ export function SincronizacionesPage() {
             ) : items.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
-                  Aún no hay sincronizaciones registradas.
+                  {hayFiltro
+                    ? 'No hay sincronizaciones en ese rango de fechas.'
+                    : 'Aún no hay sincronizaciones registradas.'}
                 </TableCell>
               </TableRow>
             ) : (

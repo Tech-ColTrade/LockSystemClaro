@@ -37,7 +37,9 @@ class Televisor(models.Model):
     # dispositivo no sigue la derivación estándar.
     eui64 = models.CharField('EUI-64', max_length=32, blank=True, default='')
 
-    created_at = models.DateTimeField('Fecha de registro', auto_now_add=True)
+    # db_index: es la columna del `ordering` de abajo. Sin índice, servir una
+    # página de 10 obliga a Postgres a ordenar la tabla entera.
+    created_at = models.DateTimeField('Fecha de registro', auto_now_add=True, db_index=True)
 
     class Meta:
         verbose_name = 'televisor'
@@ -118,7 +120,7 @@ class SyncJob(models.Model):
         related_name='sync_jobs',
     )
     ip = models.GenericIPAddressField('IP', null=True, blank=True)
-    creado = models.DateTimeField(auto_now_add=True)
+    creado = models.DateTimeField(auto_now_add=True, db_index=True)
     actualizado = models.DateTimeField(auto_now=True)
     terminado_en = models.DateTimeField(null=True, blank=True)
 
@@ -178,7 +180,7 @@ class BulkSyncJob(models.Model):
         related_name='bulk_sync_jobs',
     )
     ip = models.GenericIPAddressField('IP', null=True, blank=True)
-    creado = models.DateTimeField(auto_now_add=True)
+    creado = models.DateTimeField(auto_now_add=True, db_index=True)
     actualizado = models.DateTimeField(auto_now=True)
     terminado_en = models.DateTimeField(null=True, blank=True)
 
@@ -223,7 +225,7 @@ class PinCodeUsado(models.Model):
         related_name='pincodes_entregados',
     )
     ip = models.GenericIPAddressField('IP', null=True, blank=True)
-    creado = models.DateTimeField('Fecha', auto_now_add=True)
+    creado = models.DateTimeField('Fecha', auto_now_add=True, db_index=True)
 
     class Meta:
         verbose_name = 'pin code usado'

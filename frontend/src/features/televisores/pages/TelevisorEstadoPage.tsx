@@ -24,14 +24,6 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -335,6 +327,67 @@ export function TelevisorEstadoPage() {
         </CardContent>
       </Card>
 
+      {/* Progreso de la sincronización (polling real) */}
+      {sync.phase !== 'idle' && (
+        <Card className="py-4">
+          <CardContent className="flex flex-col gap-3 px-4">
+            <div className="flex items-center gap-3">
+              {ejecutando && <Loader2 className="size-4 shrink-0 animate-spin text-primary" />}
+              {sync.phase === 'ok' && (
+                <CircleCheck className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+              )}
+              {sync.phase === 'error' && (
+                <CircleX className="size-4 shrink-0 text-destructive" />
+              )}
+
+              <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+                {sync.titulo}
+              </span>
+
+              <span
+                className={cn(
+                  'text-sm font-semibold tabular-nums',
+                  sync.phase === 'error'
+                    ? 'text-destructive'
+                    : sync.phase === 'ok'
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : 'text-muted-foreground',
+                )}
+              >
+                {Math.round(sync.pct)}%
+              </span>
+
+              {!ejecutando && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="-mr-1 h-7 px-2 text-xs text-muted-foreground"
+                  onClick={() => setSync(SYNC_IDLE)}
+                >
+                  Cerrar
+                </Button>
+              )}
+            </div>
+
+            <Progress
+              value={sync.pct}
+              className={cn(
+                'w-full [&_[data-slot=progress-track]]:h-1',
+                sync.phase === 'error' &&
+                  '[&_[data-slot=progress-indicator]]:bg-destructive',
+                sync.phase === 'ok' &&
+                  '[&_[data-slot=progress-indicator]]:bg-emerald-500',
+              )}
+            />
+
+            {sync.phase !== 'running' && (
+              <p className="text-xs text-muted-foreground">{sync.texto}</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Histórico de cambios */}
       <Card>
         <CardHeader className="border-b pb-4">
@@ -381,71 +434,6 @@ export function TelevisorEstadoPage() {
           )}
         </CardContent>
       </Card>
-
-      {/* Modal de progreso (polling real) */}
-      <Dialog
-        open={sync.phase !== 'idle'}
-        onOpenChange={(open) => {
-          if (!open && !ejecutando) setSync(SYNC_IDLE)
-        }}
-      >
-        <DialogContent showCloseButton={false} className="sm:max-w-md">
-          <DialogHeader className="items-center text-center">
-            <span
-              className={cn(
-                'flex size-14 items-center justify-center rounded-full',
-                sync.phase === 'ok'
-                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                  : sync.phase === 'error'
-                    ? 'bg-destructive/10 text-destructive'
-                    : 'bg-primary/10 text-primary',
-              )}
-            >
-              {sync.phase === 'running' && <Loader2 className="size-7 animate-spin" />}
-              {sync.phase === 'ok' && <CircleCheck className="size-7" />}
-              {sync.phase === 'error' && <CircleX className="size-7" />}
-            </span>
-            <DialogTitle>{sync.titulo}</DialogTitle>
-            <DialogDescription className="sr-only">
-              Progreso de la sincronización con el portal.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="flex flex-col items-center gap-4">
-            <div
-              className={cn(
-                'text-5xl font-extrabold tabular-nums transition-colors',
-                sync.phase === 'error'
-                  ? 'text-destructive'
-                  : sync.phase === 'ok'
-                    ? 'text-emerald-600 dark:text-emerald-400'
-                    : 'text-primary',
-              )}
-            >
-              {Math.round(sync.pct)}%
-            </div>
-            <Progress
-              value={sync.pct}
-              className={cn(
-                'w-full [&_[data-slot=progress-track]]:h-2.5',
-                sync.phase === 'error' &&
-                  '[&_[data-slot=progress-indicator]]:bg-destructive',
-                sync.phase === 'ok' &&
-                  '[&_[data-slot=progress-indicator]]:bg-emerald-500',
-              )}
-            />
-            {sync.phase !== 'running' && (
-              <p className="text-center text-sm text-muted-foreground">{sync.texto}</p>
-            )}
-          </div>
-
-          {!ejecutando && (
-            <DialogFooter>
-              <Button onClick={() => setSync(SYNC_IDLE)}>Cerrar</Button>
-            </DialogFooter>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

@@ -7,11 +7,13 @@ from __future__ import annotations
 import io
 
 from django.http import HttpResponse
+from django.utils import timezone
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 
-from televisores.models import BulkSyncItem, BulkSyncJob, SyncJob, Televisor
-from televisores.portal.client import PortalClient, PortalError
+from televisores.models import BulkSyncItem, BulkSyncJob, PinCodeUsado, SyncJob
+
+from .filtros import filtrar_por_fecha, filtrar_sincronizaciones
 
 XLSX_CONTENT_TYPE = (
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -44,42 +46,83 @@ def _resultado_item(estado: str) -> str:
     return {'ok': 'Aplicado', 'error': 'Error'}.get(estado, 'Pendiente')
 
 
-def exportar_sincronizaciones() -> HttpResponse:
-    """Historial de cambios de estado (individuales + masivos)."""
+def _nombre_archivo(base: str, televisor=None, desde=None, hasta=None) -> str:
+    """`base[_MAC][_rango].xlsx`. Los ':' de la MAC no valen en un nombre de
+    archivo en Windows, así que se cambian por guiones."""
+    partes = [base]
+    if televisor is not None:
+        partes.append(televisor.mac_address.replace(':', '-'))
+    if desde or hasta:
+        partes.append(f'{desde or "inicio"}_a_{hasta or "hoy"}')
+    return '_'.join(partes) + '.xlsx'
+
+
+def exportar_sincronizaciones(
+    desde: str | None = None,
+    hasta: str | None = None,
+    televisor=None,
+) -> HttpResponse:
+    """Historial de cambios de estado (individuales + masivos), acotado al rango.
+
+    Mismas filas que muestra /sincronizaciones: el filtro de la tabla y el del
+    Excel salen de la misma función. Con `televisor` se limita a ese equipo,
+    que es lo que exporta /televisores/<id>/sincronizaciones.
+    """
     wb = Workbook()
     ws = wb.active
     ws.title = 'Sincronizaciones'
     ws.append(['Fecha', 'Dirección MAC', 'Acción', 'Resultado', 'Tipo', 'Mensaje'])
     _estilar_encabezado(ws)
 
+    syncs = SyncJob.objects.all()
+    # Solo los lotes de sincronización: los de validación masiva no son cambios
+    # de estado, y la tabla de /sincronizaciones tampoco los muestra.
+    items = BulkSyncItem.objects.filter(job__modo=BulkSyncJob.SYNC)
+    if televisor is not None:
+        syncs = syncs.filter(televisor=televisor)
+        items = items.filter(televisor=televisor)
+
+    syncs, items = filtrar_sincronizaciones(syncs, items, desde, hasta)
+
     filas = []
-    for j in SyncJob.objects.select_related('televisor'):
+    # values_list evita instanciar los modelos; la MAC del individual se saca
+    # por la relación en vez de con un select_related + acceso al objeto.
+    for creado, mac, inhabilitar, estado, error in syncs.values_list(
+        'creado', 'televisor__mac_address', 'inhabilitar', 'estado', 'error'
+    ).iterator(chunk_size=2000):
         filas.append((
-            j.creado,
-            j.televisor.mac_address if j.televisor else '—',
-            'Inhabilitar' if j.inhabilitar else 'Habilitar',
-            _resultado_syncjob(j.estado),
+            creado,
+            mac or '—',
+            'Inhabilitar' if inhabilitar else 'Habilitar',
+            _resultado_syncjob(estado),
             'Individual',
-            j.error or '',
+            error or '',
         ))
-    for it in BulkSyncItem.objects.select_related('job'):
+    for creado, mac, inhabilitar, estado, mensaje in items.values_list(
+        'job__creado', 'mac_address', 'inhabilitar', 'estado', 'mensaje'
+    ).iterator(chunk_size=2000):
         filas.append((
-            it.job.creado,
-            it.mac_address,
-            'Inhabilitar' if it.inhabilitar else 'Habilitar',
-            _resultado_item(it.estado),
+            creado,
+            mac,
+            'Inhabilitar' if inhabilitar else 'Habilitar',
+            _resultado_item(estado),
             'Masivo',
-            it.mensaje or '',
+            mensaje or '',
         ))
 
     filas.sort(key=lambda f: f[0], reverse=True)
     for f in filas:
-        ws.append([f[0].strftime('%d/%m/%Y %H:%M'), f[1], f[2], f[3], f[4], f[5]])
+        ws.append([
+            timezone.localtime(f[0]).strftime('%d/%m/%Y %H:%M'),
+            f[1], f[2], f[3], f[4], f[5],
+        ])
 
     for col, ancho in zip('ABCDEF', (18, 20, 14, 12, 12, 40)):
         ws.column_dimensions[col].width = ancho
 
-    return _respuesta_xlsx(wb, 'sincronizaciones.xlsx')
+    return _respuesta_xlsx(
+        wb, _nombre_archivo('sincronizaciones', televisor, desde, hasta)
+    )
 
 
 def _txt_bool(valor: bool | None, si: str, no: str) -> str:
@@ -153,25 +196,45 @@ def plantilla_estados() -> HttpResponse:
     return _respuesta_xlsx(wb, 'plantilla_estados.xlsx')
 
 
-def exportar_pincodes() -> HttpResponse:
-    """Códigos Pin disponibles de todos los televisores (consultados al portal)."""
+def exportar_pincodes(
+    desde: str | None = None,
+    hasta: str | None = None,
+    televisor=None,
+) -> HttpResponse:
+    """Bitácora de Códigos Pin usados, acotada al mismo rango que ve el usuario.
+
+    Lee de la base de datos, no del portal. La versión anterior consultaba la
+    Device Lock API una vez por televisor: además de tardar minutos, devolvía
+    los pines *disponibles* en el portal en vez de los ya *usados* en la app,
+    que es lo que lista /pincodes. Con `televisor` se limita a ese equipo.
+    """
     wb = Workbook()
     ws = wb.active
     ws.title = 'Pin Codes'
-    ws.append(['Dirección MAC', 'Código de Acceso', 'Código Pin'])
+    ws.append(['Fecha', 'Dirección MAC', 'Código de Acceso', 'Código Pin'])
     _estilar_encabezado(ws)
 
-    client = PortalClient()
-    for tv in Televisor.objects.all():
-        try:
-            grupos = client.get_pin_codes(tv.eui64_portal)
-        except (PortalError, ValueError):
-            # TV sin registro en el portal o MAC inválida: se omite.
-            continue
-        for g in grupos:
-            ws.append([tv.mac_address, g['passCode'], g['pinCode']])
+    qs = PinCodeUsado.objects.all()
+    if televisor is not None:
+        qs = qs.filter(televisor=televisor)
 
-    for col, ancho in zip('ABC', (20, 18, 16)):
+    filas = (
+        filtrar_por_fecha(qs, desde, hasta)
+        .order_by('-creado')
+        # values_list + iterator: no construye instancias del modelo ni carga la
+        # bitácora entera en memoria de golpe.
+        .values_list('creado', 'mac_address', 'passcode', 'pin_code')
+        .iterator(chunk_size=2000)
+    )
+    for creado, mac, passcode, pin in filas:
+        ws.append([
+            timezone.localtime(creado).strftime('%d/%m/%Y %H:%M'),
+            mac,
+            passcode,
+            pin,
+        ])
+
+    for col, ancho in zip('ABCD', (18, 20, 18, 16)):
         ws.column_dimensions[col].width = ancho
 
-    return _respuesta_xlsx(wb, 'pincodes.xlsx')
+    return _respuesta_xlsx(wb, _nombre_archivo('pincodes', televisor, desde, hasta))

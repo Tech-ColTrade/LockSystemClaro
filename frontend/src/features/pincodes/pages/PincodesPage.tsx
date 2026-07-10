@@ -1,8 +1,9 @@
-import { useState } from 'react'
-import { ChevronLeft, ChevronRight, CircleAlert, Download } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { ChevronLeft, ChevronRight, CircleAlert, Download, X } from 'lucide-react'
 import { registrosApi } from '@/features/televisores/api/registros.api'
 import { televisoresApi } from '@/features/televisores/api/televisores.api'
 import { usePaginatedList } from '@/shared/hooks/usePaginatedList'
+import { RangoFechas } from '@/shared/components/RangoFechas'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -32,20 +33,40 @@ function fecha(iso: string): string {
 }
 
 export function PincodesPage() {
-  const { items, count, page, setPage, loading, error } = usePaginatedList(
-    registrosApi.pincodes,
+  const [desde, setDesde] = useState('')
+  const [hasta, setHasta] = useState('')
+
+  // useCallback: usePaginatedList tiene el fetcher como dependencia del efecto,
+  // así que sin memoizar recargaría en cada render.
+  const fetcher = useCallback(
+    (page: number) => registrosApi.pincodes(page, { desde, hasta }),
+    [desde, hasta],
   )
+  const { items, count, page, setPage, loading, error } = usePaginatedList(fetcher)
+
   const [exportando, setExportando] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
 
   const totalPages = Math.max(1, Math.ceil(count / PAGE_SIZE))
   const pageError = error ?? exportError
+  const hayFiltro = Boolean(desde || hasta)
+
+  // Al cambiar el rango, el número de páginas cambia: quedarse en la página 5
+  // de un resultado que ahora tiene 2 mostraría una tabla vacía.
+  useEffect(() => {
+    setPage(1)
+  }, [desde, hasta, setPage])
+
+  function limpiar() {
+    setDesde('')
+    setHasta('')
+  }
 
   async function exportar() {
     setExportError(null)
     setExportando(true)
     try {
-      await televisoresApi.exportarPincodes()
+      await televisoresApi.exportarPincodes({ desde, hasta })
     } catch (e) {
       setExportError((e as Error).message)
     } finally {
@@ -62,10 +83,30 @@ export function PincodesPage() {
             Códigos Pin/Acceso que se han usado a través de la app.
           </p>
         </div>
-        <Button variant="outline" onClick={exportar} disabled={exportando}>
-          <Download data-icon="inline-start" />
-          {exportando ? 'Exportando...' : 'Códigos Pin'}
-        </Button>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <RangoFechas
+            desde={desde}
+            hasta={hasta}
+            setDesde={setDesde}
+            setHasta={setHasta}
+          />
+          {hayFiltro && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+              onClick={limpiar}
+            >
+              <X data-icon="inline-start" />
+              Limpiar
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={exportar} disabled={exportando}>
+            <Download data-icon="inline-start" />
+            {exportando ? 'Exportando...' : 'Códigos Pin'}
+          </Button>
+        </div>
       </div>
 
       {pageError && (
@@ -74,6 +115,15 @@ export function PincodesPage() {
           <AlertTitle>Ocurrió un problema</AlertTitle>
           <AlertDescription>{pageError}</AlertDescription>
         </Alert>
+      )}
+
+      {!loading && (
+        <p className="mb-3 text-xs text-muted-foreground">
+          {count === 0
+            ? 'Sin registros'
+            : `${count} registro${count === 1 ? '' : 's'}`}
+          {hayFiltro && ' en el rango seleccionado'} · la exportación incluye todos
+        </p>
       )}
 
       <Card className="gap-0 overflow-hidden p-0">
@@ -100,7 +150,9 @@ export function PincodesPage() {
             ) : items.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
-                  Aún no se ha usado ningún Código Pin.
+                  {hayFiltro
+                    ? 'No hay Códigos Pin usados en ese rango de fechas.'
+                    : 'Aún no se ha usado ningún Código Pin.'}
                 </TableCell>
               </TableRow>
             ) : (

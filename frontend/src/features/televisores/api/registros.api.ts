@@ -5,12 +5,27 @@ import type {
   SincronizacionRow,
 } from '@/features/televisores/types'
 
-const qs = (page: number) => (page > 1 ? `?page=${page}` : '')
+/** Rango de fechas en 'YYYY-MM-DD'. Los extremos vacíos no se envían. */
+export interface RangoFiltro {
+  desde?: string
+  hasta?: string
+}
+
+export function queryRango(filtro: RangoFiltro = {}, page = 1): string {
+  const p = new URLSearchParams()
+  if (page > 1) p.set('page', String(page))
+  if (filtro.desde) p.set('desde', filtro.desde)
+  if (filtro.hasta) p.set('hasta', filtro.hasta)
+  const s = p.toString()
+  return s ? `?${s}` : ''
+}
 
 export const registrosApi = {
-  sincronizaciones: (page = 1) =>
-    apiFetch<Paginated<SincronizacionRow>>(`/api/sincronizaciones/${qs(page)}`),
+  sincronizaciones: (page = 1, filtro: RangoFiltro = {}) =>
+    apiFetch<Paginated<SincronizacionRow>>(
+      `/api/sincronizaciones/${queryRango(filtro, page)}`,
+    ),
 
-  pincodes: (page = 1) =>
-    apiFetch<Paginated<PincodeRow>>(`/api/pincodes/${qs(page)}`),
+  pincodes: (page = 1, filtro: RangoFiltro = {}) =>
+    apiFetch<Paginated<PincodeRow>>(`/api/pincodes/${queryRango(filtro, page)}`),
 }

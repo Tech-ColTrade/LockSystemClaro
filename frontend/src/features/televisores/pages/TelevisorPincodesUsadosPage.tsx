@@ -1,6 +1,12 @@
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, ChevronLeft, ChevronRight, CircleAlert } from 'lucide-react'
+import {
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  CircleAlert,
+  Download,
+} from 'lucide-react'
 import { televisoresApi } from '@/features/televisores/api/televisores.api'
 import { usePaginatedList } from '@/shared/hooks/usePaginatedList'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -40,7 +46,24 @@ export function TelevisorPincodesUsadosPage() {
   )
   const { items, count, page, setPage, loading, error } = usePaginatedList(fetcher)
 
+  const [exportando, setExportando] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
+
   const totalPages = Math.max(1, Math.ceil(count / PAGE_SIZE))
+  const pageError = error ?? exportError
+
+  async function exportar() {
+    if (!id) return
+    setExportError(null)
+    setExportando(true)
+    try {
+      await televisoresApi.exportarPincodesDeTV(id)
+    } catch (e) {
+      setExportError((e as Error).message)
+    } finally {
+      setExportando(false)
+    }
+  }
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-5">
@@ -54,19 +77,30 @@ export function TelevisorPincodesUsadosPage() {
         >
           <ArrowLeft data-icon="inline-start" /> Volver al detalle
         </Button>
-        <div className="flex items-center gap-3">
-          <h1 className="text-lg font-bold text-foreground">Códigos Pin usados</h1>
-          <Badge variant="secondary" className="tabular-nums">
-            {count}
-          </Badge>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <h1 className="text-lg font-bold text-foreground">Códigos Pin usados</h1>
+            <Badge variant="secondary" className="tabular-nums">
+              {count}
+            </Badge>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={exportar}
+            disabled={exportando || count === 0}
+          >
+            <Download data-icon="inline-start" />
+            {exportando ? 'Exportando...' : 'Exportar Excel'}
+          </Button>
         </div>
       </div>
 
-      {error && (
+      {pageError && (
         <Alert variant="destructive">
           <CircleAlert />
           <AlertTitle>Ocurrió un problema</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>{pageError}</AlertDescription>
         </Alert>
       )}
 

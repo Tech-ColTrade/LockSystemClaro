@@ -27,19 +27,11 @@ import {
 import type { DashboardResumen, Periodo } from '@/features/dashboard/types'
 import { ApiError } from '@/lib/http/errors'
 import * as I from '@/features/dashboard/components/icons'
-import { CalendarDays } from 'lucide-react'
-import { es } from 'react-day-picker/locale'
-import type { DateRange } from 'react-day-picker'
+import { RangoFechas } from '@/shared/components/RangoFechas'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { Calendar } from '@/components/ui/calendar'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover'
 import { Skeleton } from '@/components/ui/skeleton'
 
 const PERIODOS: { value: Periodo; label: string }[] = [
@@ -833,76 +825,6 @@ function ReportItem({
       </div>
       <div className="flex flex-wrap items-center gap-2">{children}</div>
     </div>
-  )
-}
-
-// --- Selector de rango de fechas (Calendar de shadcn en un Popover) ---
-function toISO(d: Date | undefined): string {
-  if (!d) return ''
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
-
-function fromISO(s: string): Date | undefined {
-  if (!s) return undefined
-  const [y, m, d] = s.split('-').map(Number)
-  if (!y || !m || !d) return undefined
-  return new Date(y, m - 1, d)
-}
-
-function fmtCorta(d: Date | undefined): string {
-  return d
-    ? d.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })
-    : ''
-}
-
-function RangoFechas({
-  desde,
-  hasta,
-  setDesde,
-  setHasta,
-}: {
-  desde: string
-  hasta: string
-  setDesde: (v: string) => void
-  setHasta: (v: string) => void
-}) {
-  const from = fromISO(desde)
-  const to = fromISO(hasta)
-  const range: DateRange | undefined = from ? { from, to } : undefined
-  const label = from
-    ? to
-      ? `${fmtCorta(from)} – ${fmtCorta(to)}`
-      : fmtCorta(from)
-    : 'Rango de fechas'
-
-  return (
-    <Popover>
-      <PopoverTrigger
-        render={
-          <Button variant="outline" size="sm" className="justify-start font-normal" />
-        }
-      >
-        <CalendarDays data-icon="inline-start" />
-        {label}
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-auto p-0">
-        <Calendar
-          mode="range"
-          numberOfMonths={2}
-          selected={range}
-          onSelect={(r) => {
-            setDesde(toISO(r?.from))
-            setHasta(toISO(r?.to))
-          }}
-          captionLayout="dropdown"
-          locale={es}
-          autoFocus
-        />
-      </PopoverContent>
-    </Popover>
   )
 }
 

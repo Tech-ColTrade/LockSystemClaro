@@ -1,4 +1,5 @@
 import { apiDownload, apiFetch } from '@/lib/http/client'
+import { queryRango, type RangoFiltro } from '@/features/televisores/api/registros.api'
 import type { Paginated } from '@/shared/types'
 import type {
   BulkSyncStatus,
@@ -135,6 +136,16 @@ export const televisoresApi = {
       `/api/televisores/${id}/pincodes-usados/${pageQs(page)}`,
     ),
 
+  // Exportan TODOS los registros del televisor, no la página visible.
+  exportarSincronizacionesDeTV: (id: number | string) =>
+    apiDownload(
+      `/api/televisores/${id}/exportar-sincronizaciones/`,
+      'sincronizaciones.xlsx',
+    ),
+
+  exportarPincodesDeTV: (id: number | string) =>
+    apiDownload(`/api/televisores/${id}/exportar-pincodes/`, 'pincodes.xlsx'),
+
   // --- Códigos Pin ---
   pincodes: (id: number | string) =>
     apiFetch<PinCodesResponse>(`/api/televisores/${id}/pincodes/`),
@@ -147,14 +158,19 @@ export const televisoresApi = {
     }),
 
   // --- Exportaciones a Excel ---
-  exportarSincronizaciones: () =>
+  exportarSincronizaciones: (filtro: RangoFiltro = {}) =>
     apiDownload(
-      '/api/televisores/exportar-sincronizaciones/',
+      `/api/televisores/exportar-sincronizaciones/${queryRango(filtro)}`,
       'sincronizaciones.xlsx',
     ),
 
-  exportarPincodes: () =>
-    apiDownload('/api/televisores/exportar-pincodes/', 'pincodes.xlsx'),
+  // Se manda el mismo rango que filtra la tabla: el Excel contiene exactamente
+  // las filas que el usuario está viendo.
+  exportarPincodes: (filtro: RangoFiltro = {}) =>
+    apiDownload(
+      `/api/televisores/exportar-pincodes/${queryRango(filtro)}`,
+      'pincodes.xlsx',
+    ),
 
   // --- Plantillas Excel ---
   plantillaTelevisores: () =>

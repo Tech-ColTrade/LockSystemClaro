@@ -104,25 +104,42 @@ def procesar_enrolar_estado(nombre: str, data: bytes) -> dict:
     }
 
     cambiados: list[Televisor] = []
-    creados = 0
-    with transaction.atomic():
-        for k in orden:
-            d = deseado[k]
-            tv = existentes.get(k)
-            if tv is None:
-                tv = Televisor(mac_address=d['mac'], serial_number=d['serial'])
-                creados += 1
-            elif d['serial'] and tv.serial_number != d['serial']:
+    nuevos: list[Televisor] = []
+    actualizar: list[Televisor] = []
+
+    for k in orden:
+        d = deseado[k]
+        tv = existentes.get(k)
+        if tv is None:
+            tv = Televisor(mac_address=d['mac'], serial_number=d['serial'])
+            nuevos.append(tv)
+        else:
+            if d['serial'] and tv.serial_number != d['serial']:
                 tv.serial_number = d['serial']
+            actualizar.append(tv)
 
-            if tv.pk is None or tv.inhabilitado != d['estado']:
-                if tv.inhabilitado != d['estado']:
-                    cambiados.append(tv)
-                tv.inhabilitado = d['estado']
-            tv.save()  # normaliza MAC/serial y persiste el estado local
-            existentes[k] = tv
+        if tv.inhabilitado != d['estado']:
+            cambiados.append(tv)
+        tv.inhabilitado = d['estado']
 
-    actualizados = len(orden) - creados
+    # bulk_create/bulk_update no llaman a save(), así que la normalización que
+    # hace Televisor.save() se aplica aquí a mano.
+    for tv in (*nuevos, *actualizar):
+        tv.mac_address = tv.mac_address.strip().upper()
+        tv.serial_number = (tv.serial_number or '').strip()
+
+    # Dos escrituras por lotes en vez de un save() por fila: contra una base de
+    # datos remota, el round-trip por fila era el cuello de botella.
+    with transaction.atomic():
+        if nuevos:
+            Televisor.objects.bulk_create(nuevos, batch_size=500)
+        if actualizar:
+            Televisor.objects.bulk_update(
+                actualizar, ['serial_number', 'inhabilitado'], batch_size=500
+            )
+
+    creados = len(nuevos)
+    actualizados = len(actualizar)
     return {
         'creados': creados,
         'actualizados': actualizados,
