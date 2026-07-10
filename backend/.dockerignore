@@ -1,0 +1,33 @@
+# Entorno virtual local: la imagen instala sus propias dependencias.
+env/
+venv/
+.venv/
+
+# Secretos: en Render las variables van en el dashboard, nunca en la imagen.
+.env
+.env.*
+
+# Base de datos local (en producción se usa PostgreSQL).
+db.sqlite3
+db.sqlite3-journal
+
+# Estáticos: los genera collectstatic al arrancar.
+staticfiles/
+media/
+
+# Ruido
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.log
+.git/
+.gitignore
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Documentación (no hace falta dentro de la imagen)
+README.md
+SECURITY.md
+DEPLOY.md

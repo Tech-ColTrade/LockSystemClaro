@@ -86,6 +86,17 @@ export const televisoresApi = {
   bulkStatus: (jobId: number) =>
     apiFetch<BulkSyncStatus>(`/api/televisores/enrolar-estado/${jobId}/`),
 
+  cancelarEnrolarEstado: (jobId: number) =>
+    apiFetch<BulkSyncStatus>(`/api/televisores/enrolar-estado/${jobId}/cancelar/`, {
+      method: 'POST',
+    }),
+
+  exportarEnrolarEstado: (jobId: number) =>
+    apiDownload(
+      `/api/televisores/enrolar-estado/${jobId}/exportar/`,
+      `sincronizacion_masiva_${jobId}.xlsx`,
+    ),
+
   // --- Validación (dry-run) ---
   validar: (id: number | string) =>
     apiFetch<ValidarResult>(`/api/televisores/${id}/validar/`),
@@ -98,6 +109,17 @@ export const televisoresApi = {
 
   validarMasivoStatus: (jobId: number) =>
     apiFetch<BulkSyncStatus>(`/api/televisores/validar-masivo/${jobId}/`),
+
+  cancelarValidarMasivo: (jobId: number) =>
+    apiFetch<BulkSyncStatus>(`/api/televisores/validar-masivo/${jobId}/cancelar/`, {
+      method: 'POST',
+    }),
+
+  exportarValidarMasivo: (jobId: number) =>
+    apiDownload(
+      `/api/televisores/validar-masivo/${jobId}/exportar/`,
+      `validacion_masiva_${jobId}.xlsx`,
+    ),
 
   // --- Registros del televisor (sección "Registros" del detalle) ---
   registros: (id: number | string) =>

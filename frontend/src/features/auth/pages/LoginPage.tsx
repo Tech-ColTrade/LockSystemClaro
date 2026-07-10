@@ -1,6 +1,16 @@
 import { useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { CheckCircle2, CircleAlert, Eye, EyeOff, Loader2, Lock, Mail } from 'lucide-react'
+import {
+  ArrowRight,
+  CheckCircle2,
+  CircleAlert,
+  Eye,
+  EyeOff,
+  Loader2,
+  Lock,
+  Mail,
+  ShieldCheck,
+} from 'lucide-react'
 import { useAuth } from '@/features/auth/context/auth-context'
 import { ApiError } from '@/lib/http/errors'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -20,10 +30,10 @@ interface LocationState {
 }
 
 // Tema FIJO para el login: redefinimos localmente las variables que el sistema
-// de acento (y el modo oscuro) sobrescriben en <html>, de modo que esta pantalla
-// se vea siempre igual — tema claro + marca rosa por defecto — sin importar la
-// configuración del usuario. Al vivir en el contenedor del login, estas variables
-// ganan sobre las de <html> para todo su subárbol.
+// de acento (y el modo oscuro) sobrescriben en <html>, para que esta pantalla
+// se vea siempre igual — monocromática blanco/negro — sin importar la
+// configuración del usuario. Al vivir en el contenedor del login, estas
+// variables ganan sobre las de <html> para todo su subárbol.
 const STATIC_THEME: React.CSSProperties = {
   colorScheme: 'light',
   '--background': 'oklch(1 0 0)',
@@ -37,13 +47,22 @@ const STATIC_THEME: React.CSSProperties = {
   '--destructive': 'oklch(0.577 0.245 27.325)',
   '--border': 'oklch(0.922 0 0)',
   '--input': 'oklch(0.922 0 0)',
-  '--primary': '#f6186a',
-  '--primary-foreground': '#ffffff',
-  '--ring': '#f6186a',
-  '--color-whale': '#f6186a',
-  '--color-whale-dark': '#d10f57',
-  '--color-whale-light': '#ff5a98',
+  // Acento monocromático: negro tinta, texto blanco.
+  '--primary': 'oklch(0.145 0 0)',
+  '--primary-foreground': 'oklch(1 0 0)',
+  '--ring': 'oklch(0.145 0 0)',
 } as React.CSSProperties
+
+// Patrón de rejilla sutil para el panel negro (líneas blancas muy tenues),
+// difuminado hacia los bordes con una máscara radial.
+const GRID_PATTERN: React.CSSProperties = {
+  backgroundImage:
+    'linear-gradient(to right, rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.05) 1px, transparent 1px)',
+  backgroundSize: '46px 46px',
+  maskImage: 'radial-gradient(ellipse 80% 70% at 50% 40%, #000 40%, transparent 100%)',
+  WebkitMaskImage:
+    'radial-gradient(ellipse 80% 70% at 50% 40%, #000 40%, transparent 100%)',
+}
 
 function BrandLogo({ className }: { className?: string }) {
   return (
@@ -56,6 +75,7 @@ function BrandLogo({ className }: { className?: string }) {
 const FEATURES = [
   'Inhabilitación remota de televisores',
   'Reportes y auditoría en tiempo real',
+  'Control de pines y sincronizaciones',
 ]
 
 export function LoginPage() {
@@ -94,33 +114,42 @@ export function LoginPage() {
 
   return (
     <div style={STATIC_THEME} className="flex min-h-screen bg-background text-foreground">
-      {/* Panel izquierdo (marca) — oculto en móvil */}
-      <div className="relative hidden w-1/2 flex-col justify-between overflow-hidden bg-gradient-to-br from-[#6d1443] via-[#c8134f] to-[#f6186a] p-14 text-white lg:flex">
-        {/* Decoración: halos difusos */}
-        <div className="pointer-events-none absolute -top-24 -right-24 size-96 rounded-full bg-[#ff5a98]/35 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-32 -left-16 size-96 rounded-full bg-[#ff8fbb]/25 blur-3xl" />
+      {/* Panel izquierdo (marca) — negro, oculto en móvil */}
+      <div className="relative hidden w-1/2 flex-col justify-between overflow-hidden bg-[#0a0a0a] p-14 text-white lg:flex">
+        {/* Rejilla sutil */}
+        <div className="pointer-events-none absolute inset-0" style={GRID_PATTERN} />
+        {/* Halos difusos en blanco/gris para dar profundidad */}
+        <div className="pointer-events-none absolute -top-32 -right-24 size-[26rem] rounded-full bg-white/[0.07] blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-40 -left-24 size-[26rem] rounded-full bg-white/[0.04] blur-3xl" />
 
+        {/* Logo */}
         <div className="relative flex items-center gap-3">
-          <div className="flex size-11 items-center justify-center rounded-xl bg-white/15 ring-1 ring-white/25 backdrop-blur">
+          <div className="flex size-11 items-center justify-center rounded-xl bg-white/10 ring-1 ring-white/15 backdrop-blur">
             <BrandLogo className="size-6" />
           </div>
           <span className="text-xl font-extrabold tracking-tight">Locking System</span>
         </div>
 
+        {/* Titular + features */}
         <div className="relative">
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.06] px-3 py-1 text-xs font-medium text-white/70 backdrop-blur">
+            <ShieldCheck className="size-3.5" />
+            Plataforma de control
+          </div>
+
           <h1 className="text-5xl font-extrabold leading-[1.05] tracking-tight">
             Control total de
             <br />
-            tu parque de TVs
+            tus televisores
           </h1>
-          <p className="mt-5 max-w-sm text-lg text-white/70">
-            Gestiona la inhabilitación de tus televisores Locking System desde un solo
-            lugar.
+          <p className="mt-5 max-w-sm text-lg text-white/60">
+            Gestiona la inhabilitación de tus televisores Locking System desde un
+            solo lugar.
           </p>
 
-          <ul className="mt-9 flex flex-col gap-3">
+          <ul className="mt-9 flex flex-col gap-3.5">
             {FEATURES.map((f) => (
-              <li key={f} className="flex items-center gap-3 text-white/85">
+              <li key={f} className="flex items-center gap-3 text-white/80">
                 <CheckCircle2 className="size-5 shrink-0 text-white" />
                 <span className="text-sm">{f}</span>
               </li>
@@ -128,7 +157,7 @@ export function LoginPage() {
           </ul>
         </div>
 
-        <p className="relative text-xs text-white/50">
+        <p className="relative text-xs text-white/40">
           © {new Date().getFullYear()} Locking System · Colombian Trade Company
         </p>
       </div>
@@ -136,9 +165,9 @@ export function LoginPage() {
       {/* Panel derecho (formulario) */}
       <div className="flex w-full items-center justify-center bg-muted/40 px-6 py-10 lg:w-1/2">
         <div className="w-full max-w-sm">
-          {/* Marca compacta para móvil (el panel de marca está oculto) */}
+          {/* Marca compacta para móvil (el panel negro está oculto) */}
           <div className="mb-8 flex items-center justify-center gap-2.5 lg:hidden">
-            <div className="flex size-10 items-center justify-center rounded-xl bg-gradient-to-br from-[#ff5a98] to-[#d10f57] text-white shadow-sm">
+            <div className="flex size-10 items-center justify-center rounded-xl bg-[#0a0a0a] text-white shadow-sm">
               <BrandLogo className="size-5" />
             </div>
             <span className="text-lg font-extrabold tracking-tight text-foreground">
@@ -146,7 +175,7 @@ export function LoginPage() {
             </span>
           </div>
 
-          <Card className="shadow-xl shadow-black/5">
+          <Card className="border-border/70 shadow-xl shadow-black/5">
             <CardHeader>
               <CardTitle className="text-xl font-bold">Iniciar sesión</CardTitle>
               <CardDescription>
@@ -211,16 +240,23 @@ export function LoginPage() {
                   </div>
                 </div>
 
-                <Button type="submit" disabled={submitting} className="mt-1 w-full">
+                <Button type="submit" disabled={submitting} className="mt-1 w-full group">
                   {submitting && <Loader2 className="animate-spin" data-icon="inline-start" />}
                   {submitting ? 'Ingresando…' : 'Iniciar sesión'}
+                  {!submitting && (
+                    <ArrowRight
+                      className="transition-transform group-hover:translate-x-0.5"
+                      data-icon="inline-end"
+                    />
+                  )}
                 </Button>
               </form>
             </CardContent>
           </Card>
 
-          <p className="mt-6 text-center text-xs text-muted-foreground lg:hidden">
-            © {new Date().getFullYear()} Locking System
+          <p className="mt-6 flex items-center justify-center gap-1.5 text-center text-xs text-muted-foreground">
+            <Lock className="size-3" />
+            Conexión segura · Acceso restringido
           </p>
         </div>
       </div>

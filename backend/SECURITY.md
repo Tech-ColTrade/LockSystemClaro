@@ -71,7 +71,7 @@ Resumen de las medidas de seguridad implementadas y la checklist de despliegue.
 - **Credenciales de integración WhaleTV** (llaves de la Device Lock API y usuario/
   contraseña del Portal) ya **no están hardcodeadas** en `settings.py`: se leen del
   entorno (`.env`, gitignoreado). Con `DEBUG=False` un guard **impide arrancar** si
-  falta alguna. Ver `.env.example`.
+  falta alguna. Las claves esperadas están documentadas en [README.md](README.md).
 - Guard que **impide arrancar con `DEBUG=False`** si sigue la clave de desarrollo.
 - `.env` está en `.gitignore` (no se versiona).
 
@@ -82,7 +82,7 @@ Resumen de las medidas de seguridad implementadas y la checklist de despliegue.
 
 ## Checklist de despliegue a producción
 
-1. `DEBUG=False` y `SECRET_KEY` fuerte (ver comando en `.env.example`).
+1. `DEBUG=False` y `SECRET_KEY` fuerte (ver comando en [README.md](README.md)).
 2. `ALLOWED_HOSTS` y `CSRF_TRUSTED_ORIGINS` con tus dominios reales.
 3. `CORS_ALLOWED_ORIGINS` con el dominio del frontend; `CORS_ALLOW_ALL_ORIGINS=False`.
 4. Servir **solo HTTPS** (el proxy debe enviar `X-Forwarded-Proto: https`).

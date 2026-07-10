@@ -1,0 +1,79 @@
+# Blueprint de Render — https://render.com/docs/blueprint-spec
+#
+# Define los dos servicios por separado:
+#   lockingsystem-api  -> Django + Gunicorn + Chromium (Docker)
+#   lockingsystem-web  -> build de Vite servido como sitio estático
+#
+# La base de datos NO se declara aquí a propósito: ya existe una instancia de
+# PostgreSQL creada a mano en Render. Declararla haría que el blueprint intente
+# aprovisionar otra. Su cadena de conexión se inyecta como DATABASE_URL.
+#
+# Todo `sync: false` significa: el valor se define a mano en el dashboard y
+# nunca se versiona. Ahí van todos los secretos.
+
+services:
+  # ---------------------------------------------------------------------------
+  # Backend
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: lockingsystem-api
+    runtime: docker
+    # Misma región que la base de datos: permite usar la Internal Database URL,
+    # que no sale a internet y no consume ancho de banda facturable.
+    region: oregon
+    plan: standard # Chromium necesita ~400 MB; con 512 MB el servicio hace OOM.
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/health/
+    envVars:
+      - key: DEBUG
+        value: "False"
+
+      # Render genera una clave aleatoria fuerte la primera vez.
+      - key: SECRET_KEY
+        generateValue: true
+      - key: JWT_SIGNING_KEY
+        generateValue: true
+
+      # Cadena de conexión de PostgreSQL (usa la Internal Database URL).
+      - key: DATABASE_URL
+        sync: false
+
+      # Origen del frontend, para la allowlist de CORS.
+      # Ej: https://lockingsystem-web.onrender.com
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: CORS_ALLOW_ALL_ORIGINS
+        value: "False"
+
+      # Secretos de integración WhaleTV. Sin ellos el arranque falla adrede
+      # (guard en settings.py con DEBUG=False).
+      - key: WHALETV_LOCK_API_ACCESS_KEY
+        sync: false
+      - key: WHALETV_LOCK_API_SECRET_KEY
+        sync: false
+      - key: WHALETV_PORTAL_EMAIL
+        sync: false
+      - key: WHALETV_PORTAL_PASSWORD
+        sync: false
+
+  # ---------------------------------------------------------------------------
+  # Frontend
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: lockingsystem-web
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
+    envVars:
+      # URL del backend, SIN `/api` al final (src/lib/config.ts ya lo añade).
+      # Definida aquí, gana sobre el valor de frontend/.env.production.
+      - key: VITE_API_URL
+        sync: false
+    routes:
+      # React Router usa rutas del lado del cliente: cualquier URL que no sea un
+      # fichero real debe devolver index.html, o recargar /login daría un 404.
+      - type: rewrite
+        source: /*
+        destination: /index.html

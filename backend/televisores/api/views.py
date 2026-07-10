@@ -52,9 +52,11 @@ class TelevisorViewSet(viewsets.ModelViewSet):
         'update',
         'partial_update',
         'destroy',
-        'importar',        # Enrolar Televisores (masivo)
-        'enrolar_estado',  # Enrolar Estado (masivo)
-        'estado',          # Habilitar / Inhabilitar (sincroniza al portal)
+        'importar',                  # Enrolar Televisores (masivo)
+        'enrolar_estado',            # Enrolar Estado (masivo)
+        'enrolar_estado_cancelar',   # Cancelar sincronización masiva
+        'enrolar_estado_exportar',   # Exportar sincronización masiva a Excel
+        'estado',                    # Habilitar / Inhabilitar (sincroniza al portal)
     })
 
     def get_permissions(self):
@@ -162,6 +164,22 @@ class TelevisorViewSet(viewsets.ModelViewSet):
                 {'detail': 'Job no encontrado.'}, status=status.HTTP_404_NOT_FOUND
             )
         return Response(BulkSyncJobSerializer(job).data)
+
+    @action(
+        detail=False,
+        methods=['post'],
+        url_path=r'validar-masivo/(?P<job_id>[0-9]+)/cancelar',
+    )
+    def validar_masivo_cancelar(self, request, job_id=None):
+        return self._cancelar_bulk_job(job_id)
+
+    @action(
+        detail=False,
+        methods=['get'],
+        url_path=r'validar-masivo/(?P<job_id>[0-9]+)/exportar',
+    )
+    def validar_masivo_exportar(self, request, job_id=None):
+        return self._exportar_bulk_job(job_id)
 
     @action(detail=True, methods=['get'])
     def pincodes(self, request, pk=None):
@@ -407,4 +425,48 @@ class TelevisorViewSet(viewsets.ModelViewSet):
             return Response(
                 {'detail': 'Job no encontrado.'}, status=status.HTTP_404_NOT_FOUND
             )
+        return Response(BulkSyncJobSerializer(job).data)
+
+    @action(
+        detail=False,
+        methods=['post'],
+        url_path=r'enrolar-estado/(?P<job_id>[0-9]+)/cancelar',
+    )
+    def enrolar_estado_cancelar(self, request, job_id=None):
+        return self._cancelar_bulk_job(job_id)
+
+    @action(
+        detail=False,
+        methods=['get'],
+        url_path=r'enrolar-estado/(?P<job_id>[0-9]+)/exportar',
+    )
+    def enrolar_estado_exportar(self, request, job_id=None):
+        return self._exportar_bulk_job(job_id)
+
+    def _exportar_bulk_job(self, job_id):
+        from televisores.api.exports import exportar_bulk_job
+        from televisores.models import BulkSyncJob
+
+        try:
+            job = BulkSyncJob.objects.prefetch_related('items').get(pk=job_id)
+        except BulkSyncJob.DoesNotExist:
+            return Response(
+                {'detail': 'Job no encontrado.'}, status=status.HTTP_404_NOT_FOUND
+            )
+        return exportar_bulk_job(job)
+
+    def _cancelar_bulk_job(self, job_id):
+        """Marca un BulkSyncJob (sync o validación) para que el hilo en
+        segundo plano lo detenga en el próximo televisor que revise."""
+        from televisores.models import BulkSyncJob
+
+        try:
+            job = BulkSyncJob.objects.get(pk=job_id)
+        except BulkSyncJob.DoesNotExist:
+            return Response(
+                {'detail': 'Job no encontrado.'}, status=status.HTTP_404_NOT_FOUND
+            )
+        if not job.finalizado:
+            job.cancelar_solicitado = True
+            job.save(update_fields=['cancelar_solicitado'])
         return Response(BulkSyncJobSerializer(job).data)

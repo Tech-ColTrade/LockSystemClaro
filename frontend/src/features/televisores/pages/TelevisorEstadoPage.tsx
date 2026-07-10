@@ -388,7 +388,6 @@ export function TelevisorEstadoPage() {
         onOpenChange={(open) => {
           if (!open && !ejecutando) setSync(SYNC_IDLE)
         }}
-        dismissible={!ejecutando}
       >
         <DialogContent showCloseButton={false} className="sm:max-w-md">
           <DialogHeader className="items-center text-center">

@@ -76,6 +76,78 @@ function Empty({ children }: { children: ReactNode }) {
   )
 }
 
+function ChartLegend({
+  items,
+  textColor,
+}: {
+  items: { value: string; color: string }[]
+  textColor: string
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 pt-1 text-xs">
+      {items.map((item) => (
+        <div key={item.value} className="flex items-center gap-1.5">
+          <span
+            className="size-2.5 rounded-full"
+            style={{ backgroundColor: item.color }}
+          />
+          <span style={{ color: textColor }}>{item.value}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function fmtNum(value: number | string) {
+  return typeof value === 'number' ? value.toLocaleString('es-CO') : value
+}
+
+function fmtPct(value: number, total: number) {
+  return total ? `${Math.round((value / total) * 100)}%` : '0%'
+}
+
+function DataLabels({
+  groups,
+  note,
+}: {
+  groups: {
+    label: string
+    values: { label: string; value: number | string; color?: string }[]
+  }[]
+  note?: string
+}) {
+  if (groups.length === 0) return null
+
+  return (
+    <div className="mt-3 flex flex-col gap-2 border-t border-border/60 pt-3 text-xs">
+      <div className="grid gap-2 sm:grid-cols-2">
+        {groups.map((group) => (
+          <div key={group.label} className="min-w-0">
+            <div className="font-medium text-foreground">{group.label}</div>
+            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-muted-foreground">
+              {group.values.map((item) => (
+                <span key={`${group.label}-${item.label}`} className="inline-flex items-center gap-1.5">
+                  {item.color && (
+                    <span
+                      className="size-2 rounded-full"
+                      style={{ backgroundColor: item.color }}
+                    />
+                  )}
+                  <span>{item.label}</span>
+                  <span className="font-semibold tabular-nums text-foreground">
+                    {fmtNum(item.value)}
+                  </span>
+                </span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      {note && <div className="text-[0.7rem] text-muted-foreground">{note}</div>}
+    </div>
+  )
+}
+
 // --- Donut reutilizable con total al centro + leyenda propia (exportable) ---
 function Donut({
   data,
@@ -89,6 +161,8 @@ function Donut({
   centerLabel: string
 }) {
   const t = tooltipStyle(colors)
+  const total = data.reduce((acc, d) => acc + d.value, 0)
+
   return (
     <div>
       <div className="relative">
@@ -131,6 +205,7 @@ function Donut({
             <span className="font-semibold tabular-nums text-foreground">
               {d.value.toLocaleString('es-CO')}
             </span>
+            <span className="text-muted-foreground">({fmtPct(d.value, total)})</span>
           </div>
         ))}
       </div>
@@ -181,16 +256,38 @@ export function DashboardPage() {
     tickLine: { stroke: c.axis },
   }
 
-  // Leyenda: swatch con el color sólido de la serie (no el degradado) y el
-  // texto en tinta neutra, como pide la guía de dataviz.
-  const legendText = (v: ReactNode) => <span style={{ color: c.text }}>{v}</span>
-  const legendPayload = (items: [string, string][]) =>
-    items.map(([value, color], i) => ({
-      value,
-      type: 'circle' as const,
-      color,
-      id: String(i),
-    }))
+  const legendItems = (items: [string, string][]) =>
+    items.map(([value, color]) => ({ value, color }))
+
+  const tendenciaLabels = data?.serie_tiempo.datos.slice(-8).map((d) => ({
+    label: d.periodo,
+    values: [
+      { label: 'Inh.', value: d.inhabilitaciones, color: c.blue },
+      { label: 'Hab.', value: d.habilitaciones, color: c.orange },
+    ],
+  })) ?? []
+  const tendenciaNote =
+    data && data.serie_tiempo.datos.length > tendenciaLabels.length
+      ? `Mostrando últimos ${tendenciaLabels.length} de ${data.serie_tiempo.datos.length} períodos.`
+      : undefined
+
+  const actividadLabels =
+    data?.actividad_por_equipo
+      .slice()
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 6)
+      .map((eq) => ({
+        label: eq.serial || eq.mac,
+        values: [
+          { label: 'Inh.', value: eq.inhabilitaciones, color: c.blue },
+          { label: 'Hab.', value: eq.habilitaciones, color: c.orange },
+          { label: 'Total', value: eq.total },
+        ],
+      })) ?? []
+  const actividadNote =
+    data && data.actividad_por_equipo.length > actividadLabels.length
+      ? `Equipos con mayor actividad: ${actividadLabels.length} de ${data.actividad_por_equipo.length}.`
+      : undefined
 
   // Degradado vertical sutil por color (se inyecta dentro de cada gráfico para
   // que la exportación PNG lo conserve). Ids estables, definición idéntica.
@@ -231,7 +328,7 @@ export function DashboardPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Dashboard</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Inhabilitaciones, efectividad, actividad y auditoría del parque.
+            Inhabilitaciones, efectividad, actividad y auditoría.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -272,7 +369,7 @@ export function DashboardPage() {
               value={total.toLocaleString('es-CO')}
               tone="brand"
               icon={<I.Tv className="h-5 w-5" />}
-              hint="Parque total"
+              hint="Total registrados"
             />
             <StatTile
               label="Inhabilitados"
@@ -280,7 +377,7 @@ export function DashboardPage() {
               tone="rose"
               icon={<I.Lock className="h-5 w-5" />}
               share={pct(data.kpis.inhabilitados)}
-              hint="del parque"
+              hint="del total"
             />
             <StatTile
               label="Habilitados"
@@ -288,7 +385,7 @@ export function DashboardPage() {
               tone="emerald"
               icon={<I.Unlock className="h-5 w-5" />}
               share={pct(data.kpis.habilitados)}
-              hint="del parque"
+              hint="del total"
             />
             <StatTile
               label="Financiados"
@@ -307,13 +404,13 @@ export function DashboardPage() {
             />
           </div>
 
-          <SectionTitle>Estado del parque</SectionTitle>
+          <SectionTitle>Estado general</SectionTitle>
 
           {/* Fila 1: estado general (donut) + estatus por financiado (barras) */}
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
             <ChartCard
               title="Estatus de inhabilitación"
-              subtitle="Distribución general del parque"
+              subtitle="Distribución general de televisores"
               filename="estatus_general"
               colors={c}
               tone="brand"
@@ -366,18 +463,55 @@ export function DashboardPage() {
                   <YAxis allowDecimals={false} {...axis} />
                   <Tooltip {...t} cursor={{ fill: c.grid, opacity: 0.3 }} />
                   <Legend
-                    iconType="circle"
                     wrapperStyle={{ fontSize: 12, paddingTop: 4 }}
-                    formatter={legendText}
-                    payload={legendPayload([
-                      ['Financiado', c.blue],
-                      ['No financiado', c.neutral],
-                    ])}
+                    content={() => (
+                      <ChartLegend
+                        textColor={c.text}
+                        items={legendItems([
+                          ['Financiado', c.blue],
+                          ['No financiado', c.neutral],
+                        ])}
+                      />
+                    )}
                   />
                   <Bar dataKey="Financiado" stackId="a" fill="url(#dash-blue)" maxBarSize={64} />
                   <Bar dataKey="No financiado" stackId="a" fill="url(#dash-neutral)" radius={[5, 5, 0, 0]} maxBarSize={64} />
                 </BarChart>
               </ResponsiveContainer>
+              <DataLabels
+                groups={[
+                  {
+                    label: 'Inhabilitados',
+                    values: [
+                      {
+                        label: 'Financiado',
+                        value: data.estatus_inhabilitacion.inhabilitado.financiado,
+                        color: c.blue,
+                      },
+                      {
+                        label: 'No financiado',
+                        value: data.estatus_inhabilitacion.inhabilitado.no_financiado,
+                        color: c.neutral,
+                      },
+                    ],
+                  },
+                  {
+                    label: 'Habilitados',
+                    values: [
+                      {
+                        label: 'Financiado',
+                        value: data.estatus_inhabilitacion.habilitado.financiado,
+                        color: c.blue,
+                      },
+                      {
+                        label: 'No financiado',
+                        value: data.estatus_inhabilitacion.habilitado.no_financiado,
+                        color: c.neutral,
+                      },
+                    ],
+                  },
+                ]}
+              />
             </ChartCard>
           </div>
 
@@ -418,20 +552,67 @@ export function DashboardPage() {
                   <YAxis allowDecimals={false} {...axis} />
                   <Tooltip {...t} cursor={{ fill: c.grid, opacity: 0.3 }} />
                   <Legend
-                    iconType="circle"
                     wrapperStyle={{ fontSize: 12, paddingTop: 4 }}
-                    formatter={legendText}
-                    payload={legendPayload([
-                      ['Efectivas', c.good],
-                      ['En proceso', c.warning],
-                      ['Error', c.critical],
-                    ])}
+                    content={() => (
+                      <ChartLegend
+                        textColor={c.text}
+                        items={legendItems([
+                          ['Efectivas', c.good],
+                          ['En proceso', c.warning],
+                          ['Error', c.critical],
+                        ])}
+                      />
+                    )}
                   />
                   <Bar dataKey="Efectivas" stackId="a" fill="url(#dash-good)" maxBarSize={64} />
                   <Bar dataKey="En proceso" stackId="a" fill="url(#dash-warning)" maxBarSize={64} />
                   <Bar dataKey="Error" stackId="a" fill="url(#dash-critical)" radius={[5, 5, 0, 0]} maxBarSize={64} />
                 </BarChart>
               </ResponsiveContainer>
+              <DataLabels
+                groups={[
+                  {
+                    label: 'Inhabilitación',
+                    values: [
+                      {
+                        label: 'Efectivas',
+                        value: data.efectividad.inhabilitacion.efectivas,
+                        color: c.good,
+                      },
+                      {
+                        label: 'En proceso',
+                        value: data.efectividad.inhabilitacion.en_proceso,
+                        color: c.warning,
+                      },
+                      {
+                        label: 'Error',
+                        value: data.efectividad.inhabilitacion.error,
+                        color: c.critical,
+                      },
+                    ],
+                  },
+                  {
+                    label: 'Habilitación',
+                    values: [
+                      {
+                        label: 'Efectivas',
+                        value: data.efectividad.habilitacion.efectivas,
+                        color: c.good,
+                      },
+                      {
+                        label: 'En proceso',
+                        value: data.efectividad.habilitacion.en_proceso,
+                        color: c.warning,
+                      },
+                      {
+                        label: 'Error',
+                        value: data.efectividad.habilitacion.error,
+                        color: c.critical,
+                      },
+                    ],
+                  },
+                ]}
+              />
             </ChartCard>
 
             <ChartCard
@@ -464,19 +645,23 @@ export function DashboardPage() {
                     <YAxis allowDecimals={false} {...axis} />
                     <Tooltip {...t} cursor={{ fill: c.grid, opacity: 0.3 }} />
                     <Legend
-                      iconType="circle"
                       wrapperStyle={{ fontSize: 12, paddingTop: 4 }}
-                      formatter={legendText}
-                      payload={legendPayload([
-                        ['Inhabilitaciones', c.blue],
-                        ['Habilitaciones', c.orange],
-                      ])}
+                      content={() => (
+                        <ChartLegend
+                          textColor={c.text}
+                          items={legendItems([
+                            ['Inhabilitaciones', c.blue],
+                            ['Habilitaciones', c.orange],
+                          ])}
+                        />
+                      )}
                     />
                     <Bar dataKey="Inhabilitaciones" fill="url(#dash-blue)" radius={[5, 5, 0, 0]} maxBarSize={40} />
                     <Bar dataKey="Habilitaciones" fill="url(#dash-orange)" radius={[5, 5, 0, 0]} maxBarSize={40} />
                   </BarChart>
                 </ResponsiveContainer>
               )}
+              <DataLabels groups={tendenciaLabels} note={tendenciaNote} />
             </ChartCard>
           </div>
 
@@ -536,6 +721,7 @@ export function DashboardPage() {
                   </ScatterChart>
                 </ResponsiveContainer>
               )}
+              <DataLabels groups={actividadLabels} note={actividadNote} />
             </ChartCard>
 
             <ChartCard

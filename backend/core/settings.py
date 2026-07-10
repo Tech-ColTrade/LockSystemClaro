@@ -8,6 +8,7 @@ Generado con Django 6.0.6 + Django REST Framework.
 from datetime import timedelta
 from pathlib import Path
 
+import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 import os
@@ -34,6 +35,12 @@ DEBUG = os.getenv('DEBUG', 'True') == 'True'
 ALLOWED_HOSTS = [
     h.strip() for h in os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if h.strip()
 ]
+
+# Render expone el dominio público del servicio en esta variable. Se añade solo
+# para no tener que repetirlo a mano en ALLOWED_HOSTS en cada redespliegue.
+RENDER_EXTERNAL_HOSTNAME = os.getenv('RENDER_EXTERNAL_HOSTNAME')
+if RENDER_EXTERNAL_HOSTNAME and RENDER_EXTERNAL_HOSTNAME not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
 
 # Impide arrancar en producción con la clave de desarrollo insegura.
 if not DEBUG and SECRET_KEY.startswith('django-insecure-'):
@@ -69,6 +76,9 @@ AUTH_USER_MODEL = 'users.User'
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # WhiteNoise sirve los estáticos del admin/DRF sin depender de Nginx.
+    # Debe ir inmediatamente después de SecurityMiddleware.
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -101,6 +111,10 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
+# SQLite en local; PostgreSQL en producción vía DATABASE_URL.
+#
+# OJO: el disco de un servicio web en Render es efímero — un SQLite allí se
+# borraría en cada despliegue. En la nube DATABASE_URL es obligatoria.
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
@@ -109,6 +123,22 @@ DATABASES = {
         'OPTIONS': {'timeout': 20},
     }
 }
+
+DATABASE_URL = os.getenv('DATABASE_URL')
+if DATABASE_URL:
+    DATABASES['default'] = dj_database_url.parse(
+        DATABASE_URL,
+        # Reutiliza conexiones entre peticiones (Render cobra por conexión).
+        conn_max_age=600,
+        conn_health_checks=True,
+        # El Postgres gestionado de Render exige TLS desde fuera de su red.
+        ssl_require=os.getenv('DATABASE_SSL_REQUIRE', 'True') == 'True',
+    )
+elif not DEBUG:
+    raise ImproperlyConfigured(
+        'Falta DATABASE_URL. Con DEBUG=False no se puede usar SQLite: el disco '
+        'del servicio es efímero y perderías los datos en cada despliegue.'
+    )
 
 
 # Password validation
@@ -156,6 +186,20 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+# Destino de `collectstatic`. Solo contiene los estáticos del admin de Django y
+# del navegador de DRF; el frontend React se despliega aparte.
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+STORAGES = {
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    },
+    'staticfiles': {
+        # Comprime y versiona los estáticos (cache-busting por hash).
+        'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
+    },
+}
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/6.0/ref/settings/#default-auto-field
@@ -238,7 +282,7 @@ SIMPLE_JWT = {
 # ---------------------------------------------------------------------------
 # Credenciales por entorno: DEV/ACC/PROD. Se leen SIEMPRE de variables de
 # entorno (nunca hardcodeadas en el código) para poder rotarlas y para no
-# versionar secretos. Definir en `.env` (ver `.env.example`).
+# versionar secretos. Definir en `.env` (claves documentadas en `README.md`).
 WHALETV_LOCK_API = {
     'HOST': os.getenv('WHALETV_LOCK_API_HOST', 'saas.zeasn.tv'),
     'ACCESS_KEY': os.getenv('WHALETV_LOCK_API_ACCESS_KEY', ''),
@@ -319,6 +363,10 @@ SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 # Refuerzos que solo tienen sentido con HTTPS (producción).
 if not DEBUG:
     SECURE_SSL_REDIRECT = True
+    # El health check interno de Render llega por HTTP y sin cabecera
+    # X-Forwarded-Proto: sin esta exención recibiría un 301 y daría el servicio
+    # por caído. El resto de rutas sí se fuerzan a HTTPS.
+    SECURE_REDIRECT_EXEMPT = [r'^api/health/?$']
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_HSTS_SECONDS = 60 * 60 * 24 * 365  # 1 año
@@ -328,6 +376,10 @@ if not DEBUG:
     CSRF_TRUSTED_ORIGINS = [
         o.strip() for o in os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',') if o.strip()
     ]
+    if RENDER_EXTERNAL_HOSTNAME:
+        _render_origin = f'https://{RENDER_EXTERNAL_HOSTNAME}'
+        if _render_origin not in CSRF_TRUSTED_ORIGINS:
+            CSRF_TRUSTED_ORIGINS.append(_render_origin)
 
 
 # ---------------------------------------------------------------------------

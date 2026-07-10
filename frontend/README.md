@@ -22,7 +22,8 @@ frontend/
 │   ├── index.css
 │   └── main.tsx
 ├── vite.config.ts        # Proxy /api -> http://127.0.0.1:8000
-├── .env.example
+├── .env                  # Local (npm run dev)
+├── .env.production       # Nube (npm run build)
 └── package.json
 ```
 
@@ -50,10 +51,29 @@ Abre http://localhost:5173.
 - La lectura (`GET /api/items/`) es pública; crear/editar/borrar requieren
   autenticación JWT (permiso `IsAuthenticatedOrReadOnly` en el backend).
 
+## Variables de entorno
+
+Vite elige el archivo según el comando; no hay que configurar nada:
+
+| Comando         | Archivo que carga | Uso           |
+|-----------------|-------------------|---------------|
+| `npm run dev`   | `.env`            | Local         |
+| `npm run build` | `.env.production` | Nube / deploy |
+
+La única variable es `VITE_API_URL`:
+
+- **Local** (`.env`): vacía. Las peticiones salen a `/api/...` y el proxy de Vite
+  las reenvía a `http://127.0.0.1:8000`, evitando CORS.
+- **Nube** (`.env.production`): URL completa del backend **sin** `/api` al final
+  (`src/lib/config.ts` ya añade ese prefijo). Déjala vacía solo si el frontend y
+  el backend comparten dominio.
+
+> Las variables `VITE_` quedan incrustadas en el bundle y son públicas: nunca
+> pongas secretos ahí.
+
 ## Producción
 
-Define `VITE_API_URL` (ver `.env.example`) con la URL completa del backend y
-compila con `npm run build` (genera `dist/`).
+Compila con `npm run build` (genera `dist/`).
 
 ## Scripts
 

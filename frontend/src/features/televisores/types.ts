@@ -112,7 +112,7 @@ export interface BulkSyncItemRecord {
 export interface BulkSyncStatus {
   id: number
   modo: 'sync' | 'validacion'
-  estado: 'pendiente' | 'corriendo' | 'terminado' | 'error'
+  estado: 'pendiente' | 'corriendo' | 'terminado' | 'error' | 'cancelado'
   total: number
   procesados: number
   ok_count: number

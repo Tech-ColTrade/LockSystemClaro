@@ -28,7 +28,14 @@ def _ejecutar(job_id: int):
 
         ok = 0
         err = 0
+        cancelado = False
         for procesados, (item_pk, tv_id) in enumerate(items, start=1):
+            if BulkSyncJob.objects.filter(
+                pk=job_id, cancelar_solicitado=True
+            ).exists():
+                cancelado = True
+                break
+
             try:
                 tv = Televisor.objects.get(pk=tv_id)
                 res = aplicar_en_sesion(driver, wait, tv)
@@ -53,7 +60,8 @@ def _ejecutar(job_id: int):
             )
 
         BulkSyncJob.objects.filter(pk=job_id).update(
-            estado=BulkSyncJob.TERMINADO, terminado_en=timezone.now()
+            estado=BulkSyncJob.CANCELADO if cancelado else BulkSyncJob.TERMINADO,
+            terminado_en=timezone.now(),
         )
     except Exception as e:  # noqa: BLE001
         # Falló el arranque/login: se marcan los items pendientes como error.
@@ -88,7 +96,14 @@ def _ejecutar_validacion(job_id: int):
 
         ok = 0
         err = 0
+        cancelado = False
         for procesados, (item_pk, tv_id) in enumerate(items, start=1):
+            if BulkSyncJob.objects.filter(
+                pk=job_id, cancelar_solicitado=True
+            ).exists():
+                cancelado = True
+                break
+
             try:
                 tv = Televisor.objects.get(pk=tv_id)
                 data = client.get_status(tv.eui64_portal)
@@ -128,7 +143,8 @@ def _ejecutar_validacion(job_id: int):
             )
 
         BulkSyncJob.objects.filter(pk=job_id).update(
-            estado=BulkSyncJob.TERMINADO, terminado_en=timezone.now()
+            estado=BulkSyncJob.CANCELADO if cancelado else BulkSyncJob.TERMINADO,
+            terminado_en=timezone.now(),
         )
     except Exception as e:  # noqa: BLE001
         BulkSyncJob.objects.filter(pk=job_id).update(

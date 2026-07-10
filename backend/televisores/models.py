@@ -143,11 +143,13 @@ class BulkSyncJob(models.Model):
     CORRIENDO = 'corriendo'
     TERMINADO = 'terminado'
     ERROR = 'error'
+    CANCELADO = 'cancelado'
     ESTADOS = [
         (PENDIENTE, 'Pendiente'),
         (CORRIENDO, 'Corriendo'),
         (TERMINADO, 'Terminado'),
         (ERROR, 'Error'),
+        (CANCELADO, 'Cancelado'),
     ]
 
     SYNC = 'sync'
@@ -156,6 +158,9 @@ class BulkSyncJob(models.Model):
 
     modo = models.CharField(max_length=12, choices=MODOS, default=SYNC)
     estado = models.CharField(max_length=12, choices=ESTADOS, default=PENDIENTE)
+    # El usuario pidió cancelar: el hilo en segundo plano revisa este flag
+    # entre televisor y televisor (no hay forma de matar el hilo a la fuerza).
+    cancelar_solicitado = models.BooleanField(default=False)
     total = models.PositiveIntegerField(default=0)
     procesados = models.PositiveIntegerField(default=0)
     ok_count = models.PositiveIntegerField(default=0)
@@ -187,7 +192,7 @@ class BulkSyncJob(models.Model):
 
     @property
     def finalizado(self) -> bool:
-        return self.estado in (self.TERMINADO, self.ERROR)
+        return self.estado in (self.TERMINADO, self.ERROR, self.CANCELADO)
 
     @property
     def porcentaje(self) -> int:

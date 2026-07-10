@@ -10,7 +10,7 @@ from django.http import HttpResponse
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 
-from televisores.models import BulkSyncItem, SyncJob, Televisor
+from televisores.models import BulkSyncItem, BulkSyncJob, SyncJob, Televisor
 from televisores.portal.client import PortalClient, PortalError
 
 XLSX_CONTENT_TYPE = (
@@ -80,6 +80,50 @@ def exportar_sincronizaciones() -> HttpResponse:
         ws.column_dimensions[col].width = ancho
 
     return _respuesta_xlsx(wb, 'sincronizaciones.xlsx')
+
+
+def _txt_bool(valor: bool | None, si: str, no: str) -> str:
+    if valor is None:
+        return '—'
+    return si if valor else no
+
+
+def exportar_bulk_job(job: BulkSyncJob) -> HttpResponse:
+    """Exporta el detalle de UN lote (sincronización o validación masiva)."""
+    es_validacion = job.modo == BulkSyncJob.VALIDACION
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Validación' if es_validacion else 'Sincronización'
+
+    if es_validacion:
+        ws.append(['Dirección MAC', 'Portal', 'App', 'Coincide', 'Mensaje'])
+        _estilar_encabezado(ws)
+        for it in job.items.all():
+            ws.append([
+                it.mac_address,
+                _txt_bool(it.remoto_inhabilitado, 'Inhabilitado', 'Habilitado'),
+                _txt_bool(it.local_inhabilitado, 'Inhabilitado', 'Habilitado'),
+                _txt_bool(it.coincide, 'Sí', 'No'),
+                it.mensaje or '',
+            ])
+        anchos = zip('ABCDE', (20, 16, 16, 12, 40))
+    else:
+        ws.append(['Dirección MAC', 'Acción', 'Resultado', 'Mensaje'])
+        _estilar_encabezado(ws)
+        for it in job.items.all():
+            ws.append([
+                it.mac_address,
+                'Inhabilitar' if it.inhabilitar else 'Habilitar',
+                _resultado_item(it.estado),
+                it.mensaje or '',
+            ])
+        anchos = zip('ABCD', (20, 14, 12, 40))
+
+    for col, ancho in anchos:
+        ws.column_dimensions[col].width = ancho
+
+    prefijo = 'validacion_masiva' if es_validacion else 'sincronizacion_masiva'
+    return _respuesta_xlsx(wb, f'{prefijo}_{job.pk}.xlsx')
 
 
 def plantilla_televisores() -> HttpResponse:

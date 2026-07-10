@@ -6,7 +6,6 @@ import {
   CircleAlert,
   CircleCheck,
   CircleX,
-  Clock,
   Download,
   FileSpreadsheet,
   Loader2,
@@ -131,6 +130,8 @@ export function EnrolarEstadoPage() {
   const [error, setError] = useState<string | null>(null)
   const [subiendo, setSubiendo] = useState(false)
   const [descargando, setDescargando] = useState(false)
+  const [cancelando, setCancelando] = useState(false)
+  const [exportando, setExportando] = useState(false)
 
   useEffect(() => {
     return () => {
@@ -172,6 +173,35 @@ export function EnrolarEstadoPage() {
       setError((err as Error).message)
     } finally {
       setSubiendo(false)
+    }
+  }
+
+  async function cancelar() {
+    if (!bulk) return
+    setCancelando(true)
+    try {
+      const s = await televisoresApi.cancelarEnrolarEstado(bulk.id)
+      setBulk(s)
+      if (s.finalizado && pollRef.current) {
+        window.clearInterval(pollRef.current)
+        pollRef.current = null
+      }
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setCancelando(false)
+    }
+  }
+
+  async function exportar() {
+    if (!bulk) return
+    setExportando(true)
+    try {
+      await televisoresApi.exportarEnrolarEstado(bulk.id)
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setExportando(false)
     }
   }
 
@@ -285,6 +315,11 @@ export function EnrolarEstadoPage() {
                     <CircleCheck className="size-4 text-emerald-600 dark:text-emerald-400" />
                     Sincronización completada
                   </>
+                ) : bulk.estado === 'cancelado' ? (
+                  <>
+                    <CircleX className="size-4 text-muted-foreground" />
+                    Sincronización cancelada
+                  </>
                 ) : (
                   <>
                     <CircleAlert className="size-4 text-destructive" />
@@ -292,9 +327,43 @@ export function EnrolarEstadoPage() {
                   </>
                 )}
               </CardTitle>
-              <Badge variant="secondary" className="tabular-nums">
-                {bulk.procesados}/{bulk.total}
-              </Badge>
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary" className="tabular-nums">
+                  {bulk.procesados}/{bulk.total}
+                </Badge>
+                {enProgreso && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={cancelar}
+                    disabled={cancelando}
+                  >
+                    {cancelando ? (
+                      <Loader2 className="animate-spin" data-icon="inline-start" />
+                    ) : (
+                      <CircleX data-icon="inline-start" />
+                    )}
+                    {cancelando ? 'Cancelando…' : 'Cancelar'}
+                  </Button>
+                )}
+                {bulk.finalizado && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={exportar}
+                    disabled={exportando}
+                  >
+                    {exportando ? (
+                      <Loader2 className="animate-spin" data-icon="inline-start" />
+                    ) : (
+                      <Download data-icon="inline-start" />
+                    )}
+                    {exportando ? 'Exportando…' : 'Exportar Excel'}
+                  </Button>
+                )}
+              </div>
             </div>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">

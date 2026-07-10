@@ -1,0 +1,13 @@
+# Normalización de finales de línea.
+#
+# El proyecto se desarrolla en Windows pero la imagen de producción es Linux.
+# Un script de shell con CRLF hace que el contenedor falle al arrancar con
+# `/usr/bin/env: 'bash\r': No such file or directory`, así que estos archivos
+# se fuerzan a LF pase lo que pase.
+* text=auto
+
+*.sh        text eol=lf
+Dockerfile  text eol=lf
+*.yaml      text eol=lf
+*.yml       text eol=lf
+entrypoint.sh text eol=lf

@@ -4,6 +4,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleAlert,
+  CircleX,
   Download,
   Eye,
   ListChecks,
@@ -66,9 +67,10 @@ export function TelevisoresPage() {
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [exportando, setExportando] = useState<'sync' | 'pin' | null>(null)
   const [valJob, setValJob] = useState<BulkSyncStatus | null>(null)
   const [validando, setValidando] = useState(false)
+  const [cancelandoVal, setCancelandoVal] = useState(false)
+  const [exportandoVal, setExportandoVal] = useState(false)
   const valPollRef = useRef<number | null>(null)
 
   useEffect(() => {
@@ -101,19 +103,6 @@ export function TelevisoresPage() {
     setSearch(query.trim())
   }
 
-  async function exportar(tipo: 'sync' | 'pin') {
-    setError(null)
-    setExportando(tipo)
-    try {
-      if (tipo === 'sync') await televisoresApi.exportarSincronizaciones()
-      else await televisoresApi.exportarPincodes()
-    } catch (e) {
-      setError((e as Error).message)
-    } finally {
-      setExportando(null)
-    }
-  }
-
   async function validacionMasiva() {
     setError(null)
     setValidando(true)
@@ -136,6 +125,36 @@ export function TelevisoresPage() {
     } catch (e) {
       setError((e as Error).message)
       setValidando(false)
+    }
+  }
+
+  async function cancelarValidacion() {
+    if (!valJob) return
+    setCancelandoVal(true)
+    try {
+      const s = await televisoresApi.cancelarValidarMasivo(valJob.id)
+      setValJob(s)
+      if (s.finalizado && valPollRef.current) {
+        window.clearInterval(valPollRef.current)
+        valPollRef.current = null
+        setValidando(false)
+      }
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setCancelandoVal(false)
+    }
+  }
+
+  async function exportarValidacion() {
+    if (!valJob) return
+    setExportandoVal(true)
+    try {
+      await televisoresApi.exportarValidarMasivo(valJob.id)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setExportandoVal(false)
     }
   }
 
@@ -167,22 +186,6 @@ export function TelevisoresPage() {
               </Button>
             </>
           )}
-          <Button
-            variant="outline"
-            onClick={() => exportar('sync')}
-            disabled={exportando !== null}
-          >
-            <Download />
-            {exportando === 'sync' ? 'Exportando…' : 'Sincronizaciones'}
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => exportar('pin')}
-            disabled={exportando !== null}
-          >
-            <Download />
-            {exportando === 'pin' ? 'Exportando…' : 'Códigos Pin'}
-          </Button>
           {canOperate && (
             <Button render={<Link to="/televisores/nuevo" />}>
               <Plus />
@@ -338,7 +341,11 @@ export function TelevisoresPage() {
         <DialogContent showCloseButton={!!valJob?.finalizado} className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>
-              {valJob?.finalizado ? 'Validación completada' : 'Validando con el portal…'}
+              {valJob?.estado === 'cancelado'
+                ? 'Validación cancelada'
+                : valJob?.finalizado
+                  ? 'Validación completada'
+                  : 'Validando con el portal…'}
             </DialogTitle>
             <DialogDescription>
               {valJob ? `${valJob.procesados}/${valJob.total} procesados` : ''}
@@ -417,8 +424,39 @@ export function TelevisoresPage() {
             </div>
           )}
 
+          {valJob && !valJob.finalizado && (
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={cancelarValidacion}
+                disabled={cancelandoVal}
+              >
+                {cancelandoVal ? (
+                  <Loader2 className="animate-spin" data-icon="inline-start" />
+                ) : (
+                  <CircleX data-icon="inline-start" />
+                )}
+                {cancelandoVal ? 'Cancelando…' : 'Cancelar'}
+              </Button>
+            </DialogFooter>
+          )}
+
           {valJob?.finalizado && (
             <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={exportarValidacion}
+                disabled={exportandoVal}
+              >
+                {exportandoVal ? (
+                  <Loader2 className="animate-spin" data-icon="inline-start" />
+                ) : (
+                  <Download data-icon="inline-start" />
+                )}
+                {exportandoVal ? 'Exportando…' : 'Exportar Excel'}
+              </Button>
               <Button onClick={() => setValJob(null)}>Cerrar</Button>
             </DialogFooter>
           )}

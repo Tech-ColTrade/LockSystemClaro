@@ -10,6 +10,10 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+
+# Overrides personales (.env.local, .env.production.local, …).
+# `.env` y `.env.production` SÍ se versionan: las variables VITE_ se incrustan
+# en el bundle y son públicas, no contienen secretos.
 *.local
 
 # Editor directories and files

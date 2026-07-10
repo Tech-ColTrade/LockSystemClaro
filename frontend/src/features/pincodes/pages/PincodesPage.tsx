@@ -1,5 +1,7 @@
-import { ChevronLeft, ChevronRight, CircleAlert } from 'lucide-react'
+import { useState } from 'react'
+import { ChevronLeft, ChevronRight, CircleAlert, Download } from 'lucide-react'
 import { registrosApi } from '@/features/televisores/api/registros.api'
+import { televisoresApi } from '@/features/televisores/api/televisores.api'
 import { usePaginatedList } from '@/shared/hooks/usePaginatedList'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -33,23 +35,44 @@ export function PincodesPage() {
   const { items, count, page, setPage, loading, error } = usePaginatedList(
     registrosApi.pincodes,
   )
+  const [exportando, setExportando] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
 
   const totalPages = Math.max(1, Math.ceil(count / PAGE_SIZE))
+  const pageError = error ?? exportError
+
+  async function exportar() {
+    setExportError(null)
+    setExportando(true)
+    try {
+      await televisoresApi.exportarPincodes()
+    } catch (e) {
+      setExportError((e as Error).message)
+    } finally {
+      setExportando(false)
+    }
+  }
 
   return (
     <div className="mx-auto max-w-6xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Pincodes</h1>
-        <p className="mt-0.5 text-sm text-muted-foreground">
-          Códigos Pin/Acceso que se han usado a través de la app.
-        </p>
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Pincodes</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Códigos Pin/Acceso que se han usado a través de la app.
+          </p>
+        </div>
+        <Button variant="outline" onClick={exportar} disabled={exportando}>
+          <Download data-icon="inline-start" />
+          {exportando ? 'Exportando...' : 'Códigos Pin'}
+        </Button>
       </div>
 
-      {error && (
+      {pageError && (
         <Alert variant="destructive" className="mb-4">
           <CircleAlert />
           <AlertTitle>Ocurrió un problema</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>{pageError}</AlertDescription>
         </Alert>
       )}
 
@@ -65,7 +88,7 @@ export function PincodesPage() {
           </TableHeader>
           <TableBody>
             {loading ? (
-              Array.from({ length: 8 }).map((_, i) => (
+              Array.from({ length: PAGE_SIZE }).map((_, i) => (
                 <TableRow key={i}>
                   {Array.from({ length: 4 }).map((__, j) => (
                     <TableCell key={j}>

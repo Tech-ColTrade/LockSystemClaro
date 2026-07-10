@@ -28,7 +28,7 @@ backend/
 ├── env/                # Entorno virtual
 ├── manage.py
 ├── requirements.txt
-├── .env.example
+├── .env                # Variables de entorno y secretos (NO se versiona)
 └── README.md
 ```
 
@@ -47,8 +47,8 @@ backend/
 # 2. (Opcional) instalar dependencias en otro equipo
 pip install -r requirements.txt
 
-# 3. Copiar variables de entorno
-copy .env.example .env
+# 3. Crear el archivo .env (ver "Variables de entorno" más abajo).
+#    Está gitignoreado, así que en un equipo nuevo hay que crearlo a mano.
 
 # 4. Aplicar migraciones
 python manage.py migrate
@@ -59,6 +59,45 @@ python manage.py createsuperuser
 # 6. Levantar el servidor
 python manage.py runserver
 ```
+
+## Variables de entorno
+
+El backend lee su configuración de `backend/.env`, que **está en `.gitignore`**
+porque contiene secretos. En un equipo nuevo hay que crearlo con estas claves:
+
+```ini
+# --- Núcleo ---
+SECRET_KEY=            # genérala con el comando de abajo
+DEBUG=True
+ALLOWED_HOSTS=localhost,127.0.0.1
+
+# --- JWT ---
+JWT_SIGNING_KEY=       # opcional; si se omite usa SECRET_KEY
+
+# --- CORS (allowlist explícita; NO uses el comodín en producción) ---
+CORS_ALLOW_ALL_ORIGINS=False
+CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+
+# --- Solo producción (DEBUG=False) ---
+CSRF_TRUSTED_ORIGINS=
+
+# --- WhaleTV Device Lock API (Zeasn) — SECRETOS ---
+WHALETV_LOCK_API_ACCESS_KEY=
+WHALETV_LOCK_API_SECRET_KEY=
+
+# --- WhaleTV Portal (automatización Selenium) — SECRETOS ---
+WHALETV_PORTAL_EMAIL=
+WHALETV_PORTAL_PASSWORD=
+```
+
+Genera un `SECRET_KEY` seguro con:
+
+```powershell
+python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
+```
+
+Con `DEBUG=False` el arranque **falla** si faltan los secretos de WhaleTV o si
+sigue la clave de desarrollo. Ver [SECURITY.md](SECURITY.md).
 
 ## Endpoints
 
