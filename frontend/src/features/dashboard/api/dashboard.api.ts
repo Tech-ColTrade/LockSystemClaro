@@ -3,42 +3,54 @@ import type { DashboardResumen, Periodo } from '@/features/dashboard/types'
 
 const EXPORT = '/api/dashboard/export'
 
+/** Filtros globales del dashboard: se aplican al resumen y a las exportaciones. */
+export interface DashboardFiltros {
+  desde?: string
+  hasta?: string
+  estado?: string // '' | 'habilitado' | 'inhabilitado'
+  serial?: string
+}
+
+/** Arma el query string combinando los filtros globales con extras (p. ej. periodo). */
+function qs(filtros: DashboardFiltros = {}, extra: Record<string, string> = {}): string {
+  const p = new URLSearchParams()
+  if (filtros.desde) p.set('desde', filtros.desde)
+  if (filtros.hasta) p.set('hasta', filtros.hasta)
+  if (filtros.estado) p.set('estado', filtros.estado)
+  if (filtros.serial) p.set('serial', filtros.serial)
+  for (const [k, v] of Object.entries(extra)) if (v) p.set(k, v)
+  const s = p.toString()
+  return s ? `?${s}` : ''
+}
+
 export const dashboardApi = {
-  resumen: (periodo: Periodo = 'mes') =>
-    apiFetch<DashboardResumen>(`/api/dashboard/resumen/?periodo=${periodo}`),
+  resumen: (periodo: Periodo = 'mes', filtros: DashboardFiltros = {}) =>
+    apiFetch<DashboardResumen>(`/api/dashboard/resumen/${qs(filtros, { periodo })}`),
 
-  // --- Exportaciones a Excel ---
-  exportEstatus: () =>
-    apiDownload(`${EXPORT}/estatus/`, 'estatus_inhabilitacion.xlsx'),
+  // --- Exportaciones a Excel (respetan los filtros globales) ---
+  exportEstatus: (filtros: DashboardFiltros = {}) =>
+    apiDownload(`${EXPORT}/estatus/${qs(filtros)}`, 'estatus_inhabilitacion.xlsx'),
 
-  exportEfectividad: () =>
-    apiDownload(`${EXPORT}/efectividad/`, 'efectividad_inhabilitacion.xlsx'),
+  exportEfectividad: (filtros: DashboardFiltros = {}) =>
+    apiDownload(`${EXPORT}/efectividad/${qs(filtros)}`, 'efectividad_inhabilitacion.xlsx'),
 
-  exportTendencia: (periodo: Periodo) =>
-    apiDownload(`${EXPORT}/tendencia/?periodo=${periodo}`, `tendencia_${periodo}.xlsx`),
+  exportTendencia: (periodo: Periodo, filtros: DashboardFiltros = {}) =>
+    apiDownload(`${EXPORT}/tendencia/${qs(filtros, { periodo })}`, `tendencia_${periodo}.xlsx`),
 
-  exportHistoricoSerial: (serial = '') =>
-    apiDownload(
-      `${EXPORT}/historico-serial/${serial ? `?serial=${encodeURIComponent(serial)}` : ''}`,
-      'historico_por_serial.xlsx',
-    ),
+  exportHistoricoSerial: (filtros: DashboardFiltros = {}) =>
+    apiDownload(`${EXPORT}/historico-serial/${qs(filtros)}`, 'historico_por_serial.xlsx'),
 
   exportUsuarios: () => apiDownload(`${EXPORT}/usuarios/`, 'usuarios.xlsx'),
 
-  exportAccionesUsuario: () =>
-    apiDownload(`${EXPORT}/acciones-usuario/`, 'acciones_por_usuario.xlsx'),
+  exportAccionesUsuario: (filtros: DashboardFiltros = {}) =>
+    apiDownload(`${EXPORT}/acciones-usuario/${qs(filtros)}`, 'acciones_por_usuario.xlsx'),
 
-  exportHistorialAcciones: () =>
-    apiDownload(`${EXPORT}/historial-acciones/`, 'historial_acciones.xlsx'),
+  exportHistorialAcciones: (filtros: DashboardFiltros = {}) =>
+    apiDownload(`${EXPORT}/historial-acciones/${qs(filtros)}`, 'historial_acciones.xlsx'),
 
-  exportPinesAuditoria: (desde = '', hasta = '') => {
-    const params = new URLSearchParams()
-    if (desde) params.set('desde', desde)
-    if (hasta) params.set('hasta', hasta)
-    const qs = params.toString()
-    return apiDownload(
-      `${EXPORT}/pines-auditoria/${qs ? `?${qs}` : ''}`,
-      'auditoria_pines.xlsx',
-    )
-  },
+  exportActividadEquipo: (filtros: DashboardFiltros = {}) =>
+    apiDownload(`${EXPORT}/actividad-equipo/${qs(filtros)}`, 'actividad_por_equipo.xlsx'),
+
+  exportPinesAuditoria: (filtros: DashboardFiltros = {}) =>
+    apiDownload(`${EXPORT}/pines-auditoria/${qs(filtros)}`, 'auditoria_pines.xlsx'),
 }

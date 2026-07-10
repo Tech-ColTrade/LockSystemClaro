@@ -47,9 +47,8 @@ const navItems: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/televisores', label: 'Televisores', icon: Monitor },
   { to: '/sincronizaciones', label: 'Sincronizaciones', icon: RefreshCw },
-  { to: '/pincodes', label: 'Pincodes', icon: KeyRound },
+  { to: '/pincodes', label: 'Códigos Pin', icon: KeyRound },
   { to: '/usuarios', label: 'Usuarios', icon: Users, adminOnly: true },
-  { to: '/configuracion', label: 'Configuración', icon: Settings2 },
 ]
 
 // Logo de marca.

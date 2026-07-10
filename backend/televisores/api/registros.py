@@ -3,7 +3,7 @@ Sincronizaciones y Pincodes usados (10 registros por página)."""
 from __future__ import annotations
 
 from django.db.models import CharField, F, Value
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Coalesce, Concat, NullIf, Trim
 from rest_framework.generics import ListAPIView
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.views import APIView
@@ -20,6 +20,29 @@ def _resultado_syncjob(estado: str) -> str:
 
 def _resultado_item(estado: str) -> str:
     return {'ok': 'Aplicado', 'error': 'Error'}.get(estado, 'Pendiente')
+
+
+def nombre_usuario(prefix: str):
+    """Expresión SQL con el nombre completo del usuario que lanzó la acción.
+
+    `prefix` es la ruta a la relación de usuario ('usuario' o 'job__usuario').
+    Arma 'Nombres Apellidos'; si ambos están vacíos cae al email, y si no hay
+    usuario (SET_NULL) queda '—'.
+    """
+    completo = Trim(
+        Concat(
+            Coalesce(f'{prefix}__first_name', Value('')),
+            Value(' '),
+            Coalesce(f'{prefix}__last_name', Value('')),
+            output_field=CharField(),
+        )
+    )
+    return Coalesce(
+        NullIf(completo, Value('')),
+        f'{prefix}__email',
+        Value('—'),
+        output_field=CharField(),
+    )
 
 
 def qs_sincronizaciones(televisor=None, desde=None, hasta=None):
@@ -42,15 +65,23 @@ def qs_sincronizaciones(televisor=None, desde=None, hasta=None):
         fecha=F('creado'),
         # El televisor es SET_NULL: puede haberse borrado y dejar la fila huérfana.
         mac=Coalesce('televisor__mac_address', Value('—')),
+        serial=Coalesce('televisor__serial_number', Value('—')),
+        usuario_nombre=nombre_usuario('usuario'),
         tipo=Value('Individual', output_field=CharField()),
-    ).values('fecha', 'mac', 'inhabilitar', 'estado', 'tipo', 'id')
+    ).values(
+        'fecha', 'mac', 'serial', 'usuario_nombre', 'inhabilitar', 'estado', 'tipo', 'id'
+    )
 
     masivos = items.annotate(
         # Un BulkSyncItem no tiene fecha propia: hereda la del lote.
         fecha=F('job__creado'),
         mac=F('mac_address'),
+        serial=Coalesce('televisor__serial_number', Value('—')),
+        usuario_nombre=nombre_usuario('job__usuario'),
         tipo=Value('Masivo', output_field=CharField()),
-    ).values('fecha', 'mac', 'inhabilitar', 'estado', 'tipo', 'id')
+    ).values(
+        'fecha', 'mac', 'serial', 'usuario_nombre', 'inhabilitar', 'estado', 'tipo', 'id'
+    )
 
     # all=True -> UNION ALL. Sin él, `union()` deduplica: dos filas idénticas
     # (mismo lote, misma MAC, misma acción y resultado) se fundirían en una y
@@ -77,6 +108,8 @@ def _fila(r: dict) -> dict:
     return {
         'fecha': r['fecha'].isoformat(),
         'mac_address': r['mac'],
+        'serial_number': r['serial'],
+        'usuario': r['usuario_nombre'],
         'accion': 'Inhabilitar' if r['inhabilitar'] else 'Habilitar',
         'resultado': resultado,
         'tipo': r['tipo'],

@@ -42,6 +42,8 @@ export interface SyncJobRecord {
 export interface SincronizacionRow {
   fecha: string
   mac_address: string
+  serial_number: string
+  usuario: string
   accion: string
   resultado: string
   tipo: string
@@ -51,6 +53,7 @@ export interface SincronizacionRow {
 export interface PincodeRow {
   id: number
   mac_address: string
+  serial_number: string
   passcode: string
   pin_code: string
   creado: string

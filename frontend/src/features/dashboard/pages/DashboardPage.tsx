@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { X } from 'lucide-react'
 import {
   Bar,
   BarChart,
@@ -8,14 +9,11 @@ import {
   Pie,
   PieChart,
   ResponsiveContainer,
-  Scatter,
-  ScatterChart,
   Tooltip,
   XAxis,
   YAxis,
-  ZAxis,
 } from 'recharts'
-import { dashboardApi } from '@/features/dashboard/api/dashboard.api'
+import { dashboardApi, type DashboardFiltros } from '@/features/dashboard/api/dashboard.api'
 import { useChartColors, type ChartColors } from '@/features/dashboard/chartTheme'
 import {
   ChartCard,
@@ -32,7 +30,28 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+
+const ESTADO_LABELS: Record<string, string> = {
+  todos: 'Todos los estados',
+  habilitado: 'Habilitados',
+  inhabilitado: 'Inhabilitados',
+}
 
 const PERIODOS: { value: Periodo; label: string }[] = [
   { value: 'dia', label: 'Día' },
@@ -212,26 +231,51 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [updated, setUpdated] = useState<Date | null>(null)
+
+  // Filtros globales: se aplican a todas las tarjetas y a las exportaciones.
+  const [estado, setEstado] = useState('todos')
   const [serial, setSerial] = useState('')
   const [desde, setDesde] = useState('')
   const [hasta, setHasta] = useState('')
 
-  const cargar = useCallback(async (p: Periodo) => {
+  const filtros = useMemo<DashboardFiltros>(
+    () => ({
+      desde,
+      hasta,
+      estado: estado === 'todos' ? '' : estado,
+      serial: serial.trim(),
+    }),
+    [desde, hasta, estado, serial],
+  )
+  const filtrosActivos = Boolean(
+    filtros.desde || filtros.hasta || filtros.estado || filtros.serial,
+  )
+
+  const cargar = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
-      setData(await dashboardApi.resumen(p))
+      setData(await dashboardApi.resumen(periodo, filtros))
       setUpdated(new Date())
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'No se pudo cargar el dashboard.')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [periodo, filtros])
 
+  // Debounce: al escribir en el serial no se dispara una petición por tecla.
   useEffect(() => {
-    cargar(periodo)
-  }, [cargar, periodo])
+    const t = window.setTimeout(cargar, 300)
+    return () => window.clearTimeout(t)
+  }, [cargar])
+
+  function limpiarFiltros() {
+    setEstado('todos')
+    setSerial('')
+    setDesde('')
+    setHasta('')
+  }
 
   const descargar = async (fn: () => Promise<void>) => {
     try {
@@ -261,24 +305,6 @@ export function DashboardPage() {
   const tendenciaNote =
     data && data.serie_tiempo.datos.length > tendenciaLabels.length
       ? `Mostrando últimos ${tendenciaLabels.length} de ${data.serie_tiempo.datos.length} períodos.`
-      : undefined
-
-  const actividadLabels =
-    data?.actividad_por_equipo
-      .slice()
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 6)
-      .map((eq) => ({
-        label: eq.serial || eq.mac,
-        values: [
-          { label: 'Inh.', value: eq.inhabilitaciones, color: c.blue },
-          { label: 'Hab.', value: eq.habilitaciones, color: c.orange },
-          { label: 'Total', value: eq.total },
-        ],
-      })) ?? []
-  const actividadNote =
-    data && data.actividad_por_equipo.length > actividadLabels.length
-      ? `Equipos con mayor actividad: ${actividadLabels.length} de ${data.actividad_por_equipo.length}.`
       : undefined
 
   // Degradado vertical sutil por color (se inyecta dentro de cada gráfico para
@@ -333,7 +359,7 @@ export function DashboardPage() {
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => cargar(periodo)}
+            onClick={cargar}
             disabled={loading}
           >
             <I.Refresh className={loading ? 'animate-spin' : ''} />
@@ -341,6 +367,41 @@ export function DashboardPage() {
           </Button>
         </div>
       </div>
+
+      {/* Filtros globales: fecha, estado y serial. Aplican a todas las tarjetas
+          y a las descargas de Excel. */}
+      <Card className="mb-6 flex flex-row flex-wrap items-center gap-2 p-3">
+        <span className="text-xs font-medium text-muted-foreground">Filtrar:</span>
+        <RangoFechas desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} />
+        <Select value={estado} onValueChange={(v) => setEstado(v ?? 'todos')}>
+          <SelectTrigger size="sm" className="w-44">
+            <SelectValue>{(v: string) => ESTADO_LABELS[v]}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todos">Todos los estados</SelectItem>
+            <SelectItem value="habilitado">Habilitados</SelectItem>
+            <SelectItem value="inhabilitado">Inhabilitados</SelectItem>
+          </SelectContent>
+        </Select>
+        <Input
+          value={serial}
+          onChange={(e) => setSerial(e.target.value)}
+          placeholder="Serial…"
+          className="h-8 w-40 sm:w-48"
+        />
+        {filtrosActivos && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground"
+            onClick={limpiarFiltros}
+          >
+            <X data-icon="inline-start" />
+            Limpiar
+          </Button>
+        )}
+      </Card>
 
       {error && (
         <Alert variant="destructive" className="mb-6">
@@ -407,7 +468,7 @@ export function DashboardPage() {
               colors={c}
               tone="brand"
               icon={<I.PieIcon className="h-5 w-5" />}
-              onExcel={() => descargar(dashboardApi.exportEstatus)}
+              onExcel={() => descargar(() => dashboardApi.exportEstatus(filtros))}
             >
               {total === 0 ? (
                 <Empty>Aún no hay televisores registrados.</Empty>
@@ -431,7 +492,7 @@ export function DashboardPage() {
               colors={c}
               tone="sky"
               icon={<I.Bars className="h-5 w-5" />}
-              onExcel={() => descargar(dashboardApi.exportEstatus)}
+              onExcel={() => descargar(() => dashboardApi.exportEstatus(filtros))}
             >
               <ResponsiveContainer width="100%" height={260}>
                 <BarChart
@@ -518,7 +579,7 @@ export function DashboardPage() {
               colors={c}
               tone="emerald"
               icon={<I.Target className="h-5 w-5" />}
-              onExcel={() => descargar(dashboardApi.exportEfectividad)}
+              onExcel={() => descargar(() => dashboardApi.exportEfectividad(filtros))}
             >
               <ResponsiveContainer width="100%" height={260}>
                 <BarChart
@@ -614,7 +675,7 @@ export function DashboardPage() {
               colors={c}
               tone="brand"
               icon={<I.Trend className="h-5 w-5" />}
-              onExcel={() => descargar(() => dashboardApi.exportTendencia(periodo))}
+              onExcel={() => descargar(() => dashboardApi.exportTendencia(periodo, filtros))}
               headerRight={
                 <PeriodSelector value={periodo} onChange={setPeriodo} options={PERIODOS} />
               }
@@ -667,53 +728,48 @@ export function DashboardPage() {
               filename="actividad_por_equipo"
               colors={c}
               tone="sky"
+              hidePng
               icon={<I.Activity className="h-5 w-5" />}
-              onExcel={() => descargar(dashboardApi.exportHistorialAcciones)}
+              onExcel={() => descargar(() => dashboardApi.exportActividadEquipo(filtros))}
             >
               {data.actividad_por_equipo.length === 0 ? (
                 <Empty>Aún no hay acciones registradas.</Empty>
               ) : (
-                <ResponsiveContainer width="100%" height={260}>
-                  <ScatterChart margin={{ top: 8, right: 12, left: -12, bottom: 4 }}>
-                    <CartesianGrid stroke={c.grid} />
-                    <XAxis
-                      type="number"
-                      dataKey="x"
-                      name="Inhabilitaciones"
-                      allowDecimals={false}
-                      {...axis}
-                      label={{
-                        value: 'Inhabilitaciones',
-                        position: 'insideBottom',
-                        offset: -2,
-                        fill: c.muted,
-                        fontSize: 11,
-                      }}
-                    />
-                    <YAxis type="number" dataKey="y" name="Habilitaciones" allowDecimals={false} {...axis} />
-                    <ZAxis type="number" dataKey="z" range={[60, 420]} name="Total" />
-                    <Tooltip
-                      {...t}
-                      cursor={{ strokeDasharray: '3 3', stroke: c.axis }}
-                      formatter={(value, name) => [value as number, name as string]}
-                    />
-                    <Scatter
-                      name="Equipos"
-                      data={data.actividad_por_equipo.map((eq) => ({
-                        x: eq.inhabilitaciones,
-                        y: eq.habilitaciones,
-                        z: eq.total,
-                        serial: eq.serial || eq.mac,
-                      }))}
-                      fill={c.blue}
-                      fillOpacity={0.65}
-                      stroke={c.surface}
-                      strokeWidth={1.5}
-                    />
-                  </ScatterChart>
-                </ResponsiveContainer>
+                <div className="h-[288px] overflow-auto rounded-lg border">
+                  <Table>
+                    <TableHeader className="sticky top-0 z-10 bg-card">
+                      <TableRow>
+                        <TableHead>Serial</TableHead>
+                        <TableHead>Dirección MAC</TableHead>
+                        <TableHead className="text-right">Inh.</TableHead>
+                        <TableHead className="text-right">Hab.</TableHead>
+                        <TableHead className="text-right">Total</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {data.actividad_por_equipo.map((eq) => (
+                        <TableRow key={eq.serial || eq.mac}>
+                          <TableCell className="font-medium text-foreground">
+                            {eq.serial || '—'}
+                          </TableCell>
+                          <TableCell className="font-mono text-muted-foreground">
+                            {eq.mac}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {eq.inhabilitaciones}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {eq.habilitaciones}
+                          </TableCell>
+                          <TableCell className="text-right font-semibold tabular-nums text-foreground">
+                            {eq.total}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               )}
-              <DataLabels groups={actividadLabels} note={actividadNote} />
             </ChartCard>
 
             <ChartCard
@@ -744,12 +800,8 @@ export function DashboardPage() {
           <SectionTitle>Reportes descargables</SectionTitle>
 
           <ReportesDescargables
-            serial={serial}
-            setSerial={setSerial}
-            desde={desde}
-            setDesde={setDesde}
-            hasta={hasta}
-            setHasta={setHasta}
+            filtros={filtros}
+            filtrosActivos={filtrosActivos}
             periodo={periodo}
             descargar={descargar}
           />
@@ -838,28 +890,23 @@ function ExcelBtn({ onClick, disabled }: { onClick?: () => void; disabled?: bool
 }
 
 function ReportesDescargables({
-  serial,
-  setSerial,
-  desde,
-  setDesde,
-  hasta,
-  setHasta,
+  filtros,
+  filtrosActivos,
   periodo,
   descargar,
 }: {
-  serial: string
-  setSerial: (v: string) => void
-  desde: string
-  setDesde: (v: string) => void
-  hasta: string
-  setHasta: (v: string) => void
+  filtros: DashboardFiltros
+  filtrosActivos: boolean
   periodo: Periodo
   descargar: (fn: () => Promise<void>) => Promise<void>
 }) {
   return (
     <Card className="gap-4 p-5">
       <p className="text-xs text-muted-foreground">
-        Descarga los registros a nivel de detalle en Excel (.xlsx).
+        Descarga los registros a nivel de detalle en Excel (.xlsx).{' '}
+        {filtrosActivos
+          ? 'Se aplican los filtros seleccionados arriba.'
+          : 'Ajusta los filtros de arriba para acotar la descarga.'}
       </p>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -869,7 +916,7 @@ function ReportesDescargables({
           title="Estatus de inhabilitación"
           desc="Por equipo, discriminando producto financiado."
         >
-          <ExcelBtn onClick={() => descargar(dashboardApi.exportEstatus)} />
+          <ExcelBtn onClick={() => descargar(() => dashboardApi.exportEstatus(filtros))} />
         </ReportItem>
 
         <ReportItem
@@ -878,7 +925,7 @@ function ReportesDescargables({
           title="Efectividad de la inhabilitación"
           desc="Enviadas vs. efectivas / en proceso / error."
         >
-          <ExcelBtn onClick={() => descargar(dashboardApi.exportEfectividad)} />
+          <ExcelBtn onClick={() => descargar(() => dashboardApi.exportEfectividad(filtros))} />
         </ReportItem>
 
         <ReportItem
@@ -887,22 +934,16 @@ function ReportesDescargables({
           title="Tendencia (comparativos)"
           desc="Inhabilitaciones/habilitaciones por período."
         >
-          <ExcelBtn onClick={() => descargar(() => dashboardApi.exportTendencia(periodo))} />
+          <ExcelBtn onClick={() => descargar(() => dashboardApi.exportTendencia(periodo, filtros))} />
         </ReportItem>
 
         <ReportItem
           icon={<I.Search className="h-4 w-4" />}
           tone="amber"
           title="Histórico por Serial"
-          desc="Fechas y horas de cada acción. Filtra por serial."
+          desc="Fechas y horas de cada acción, según los filtros."
         >
-          <Input
-            value={serial}
-            onChange={(e) => setSerial(e.target.value)}
-            placeholder="Serial…"
-            className="w-32"
-          />
-          <ExcelBtn onClick={() => descargar(() => dashboardApi.exportHistoricoSerial(serial))} />
+          <ExcelBtn onClick={() => descargar(() => dashboardApi.exportHistoricoSerial(filtros))} />
         </ReportItem>
 
         <ReportItem
@@ -911,7 +952,7 @@ function ReportesDescargables({
           title="Historial de acciones por equipo"
           desc="Masivo y unitario, con usuario e IP."
         >
-          <ExcelBtn onClick={() => descargar(dashboardApi.exportHistorialAcciones)} />
+          <ExcelBtn onClick={() => descargar(() => dashboardApi.exportHistorialAcciones(filtros))} />
         </ReportItem>
 
         <ReportItem
@@ -929,22 +970,16 @@ function ReportesDescargables({
           title="Acciones por usuario (auditoría)"
           desc="Quién envía cada acción, con IP, fecha y hora."
         >
-          <ExcelBtn onClick={() => descargar(dashboardApi.exportAccionesUsuario)} />
+          <ExcelBtn onClick={() => descargar(() => dashboardApi.exportAccionesUsuario(filtros))} />
         </ReportItem>
 
         <ReportItem
           icon={<I.Key className="h-4 w-4" />}
           tone="amber"
           title="Auditoría de pines por usuario"
-          desc="Pines entregados por usuario en un período."
+          desc="Pines entregados por usuario, según los filtros."
         >
-          <RangoFechas
-            desde={desde}
-            hasta={hasta}
-            setDesde={setDesde}
-            setHasta={setHasta}
-          />
-          <ExcelBtn onClick={() => descargar(() => dashboardApi.exportPinesAuditoria(desde, hasta))} />
+          <ExcelBtn onClick={() => descargar(() => dashboardApi.exportPinesAuditoria(filtros))} />
         </ReportItem>
 
         <ReportItem

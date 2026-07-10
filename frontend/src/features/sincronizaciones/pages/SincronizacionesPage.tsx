@@ -165,17 +165,18 @@ export function SincronizacionesPage() {
           <TableHeader>
             <TableRow>
               <TableHead>Fecha</TableHead>
+              <TableHead>Número de serial</TableHead>
               <TableHead>Dirección MAC</TableHead>
+              <TableHead>Usuario</TableHead>
               <TableHead>Acción</TableHead>
               <TableHead>Resultado</TableHead>
-              <TableHead>Tipo</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               Array.from({ length: PAGE_SIZE }).map((_, i) => (
                 <TableRow key={i}>
-                  {Array.from({ length: 5 }).map((__, j) => (
+                  {Array.from({ length: 6 }).map((__, j) => (
                     <TableCell key={j}>
                       <Skeleton className="h-4 w-full max-w-36" />
                     </TableCell>
@@ -184,7 +185,7 @@ export function SincronizacionesPage() {
               ))
             ) : items.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
                   {hayFiltro
                     ? 'No hay sincronizaciones en ese rango de fechas.'
                     : 'Aún no hay sincronizaciones registradas.'}
@@ -195,13 +196,16 @@ export function SincronizacionesPage() {
                 <TableRow key={i}>
                   <TableCell className="text-muted-foreground">{fecha(s.fecha)}</TableCell>
                   <TableCell className="font-mono font-medium text-foreground">
+                    {s.serial_number || '—'}
+                  </TableCell>
+                  <TableCell className="font-mono text-muted-foreground">
                     {s.mac_address}
                   </TableCell>
+                  <TableCell>{s.usuario || '—'}</TableCell>
                   <TableCell>{s.accion}</TableCell>
                   <TableCell>
                     <ResultadoBadge resultado={s.resultado} />
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{s.tipo}</TableCell>
                 </TableRow>
               ))
             )}

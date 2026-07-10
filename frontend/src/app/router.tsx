@@ -75,7 +75,7 @@ export const router = createBrowserRouter([
           {
             path: '/pincodes',
             element: <PincodesPage />,
-            handle: { breadcrumb: 'Pincodes' },
+            handle: { breadcrumb: 'Códigos Pin' },
           },
           {
             path: '/configuracion',

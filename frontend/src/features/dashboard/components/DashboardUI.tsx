@@ -154,6 +154,7 @@ export function ChartCard({
   headerRight,
   icon,
   tone = 'brand',
+  hidePng = false,
   children,
 }: {
   title: string
@@ -164,6 +165,8 @@ export function ChartCard({
   headerRight?: ReactNode
   icon?: ReactNode
   tone?: Tone
+  /** Oculta el botón PNG (p. ej. cuando el contenido es una tabla). */
+  hidePng?: boolean
   children: ReactNode
 }) {
   const chartRef = useRef<HTMLDivElement>(null)
@@ -193,9 +196,11 @@ export function ChartCard({
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           {headerRight}
-          <ExportBtn onClick={exportarPng} title="Descargar imagen PNG">
-            PNG
-          </ExportBtn>
+          {!hidePng && (
+            <ExportBtn onClick={exportarPng} title="Descargar imagen PNG">
+              PNG
+            </ExportBtn>
+          )}
           {onExcel && (
             <ExportBtn onClick={onExcel} title="Descargar Excel">
               Excel

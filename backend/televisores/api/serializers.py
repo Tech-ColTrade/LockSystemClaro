@@ -41,9 +41,16 @@ class TelevisorSerializer(serializers.ModelSerializer):
 
 
 class PinCodeUsadoSerializer(serializers.ModelSerializer):
+    # El serial vive en el televisor asociado (SET_NULL): si el equipo se borró
+    # o el pin no quedó ligado, sale vacío.
+    serial_number = serializers.SerializerMethodField()
+
     class Meta:
         model = PinCodeUsado
-        fields = ['id', 'mac_address', 'passcode', 'pin_code', 'creado']
+        fields = ['id', 'mac_address', 'serial_number', 'passcode', 'pin_code', 'creado']
+
+    def get_serial_number(self, obj) -> str:
+        return obj.televisor.serial_number if obj.televisor_id else ''
 
 
 class SyncJobSerializer(serializers.ModelSerializer):

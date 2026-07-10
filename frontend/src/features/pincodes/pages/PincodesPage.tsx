@@ -78,7 +78,7 @@ export function PincodesPage() {
     <div className="mx-auto max-w-6xl">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Pincodes</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Códigos Pin</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
             Códigos Pin/Acceso que se han usado a través de la app.
           </p>
@@ -131,6 +131,7 @@ export function PincodesPage() {
           <TableHeader>
             <TableRow>
               <TableHead>Fecha</TableHead>
+              <TableHead>Número de serial</TableHead>
               <TableHead>Dirección MAC</TableHead>
               <TableHead>Código de Acceso</TableHead>
               <TableHead>Código Pin</TableHead>
@@ -140,7 +141,7 @@ export function PincodesPage() {
             {loading ? (
               Array.from({ length: PAGE_SIZE }).map((_, i) => (
                 <TableRow key={i}>
-                  {Array.from({ length: 4 }).map((__, j) => (
+                  {Array.from({ length: 5 }).map((__, j) => (
                     <TableCell key={j}>
                       <Skeleton className="h-4 w-full max-w-36" />
                     </TableCell>
@@ -149,7 +150,7 @@ export function PincodesPage() {
               ))
             ) : items.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
                   {hayFiltro
                     ? 'No hay Códigos Pin usados en ese rango de fechas.'
                     : 'Aún no se ha usado ningún Código Pin.'}
@@ -160,6 +161,9 @@ export function PincodesPage() {
                 <TableRow key={p.id}>
                   <TableCell className="text-muted-foreground">{fecha(p.creado)}</TableCell>
                   <TableCell className="font-mono font-medium text-foreground">
+                    {p.serial_number || '—'}
+                  </TableCell>
+                  <TableCell className="font-mono text-muted-foreground">
                     {p.mac_address}
                   </TableCell>
                   <TableCell className="font-mono tabular-nums">{p.passcode}</TableCell>

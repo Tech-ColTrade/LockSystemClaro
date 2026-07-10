@@ -7,7 +7,9 @@ auditoría de pines) se descargan como Excel desde `reportes_export.py`.
 """
 from __future__ import annotations
 
+import datetime
 from collections import defaultdict
+from dataclasses import dataclass
 
 from django.contrib.auth import get_user_model
 from django.utils import timezone
@@ -18,6 +20,99 @@ from rest_framework.views import APIView
 from televisores.models import BulkSyncItem, BulkSyncJob, PinCodeUsado, SyncJob, Televisor
 
 User = get_user_model()
+
+ESTADOS_FILTRO = ('habilitado', 'inhabilitado')
+
+
+def _parse_fecha(valor: str):
+    try:
+        return datetime.date.fromisoformat(valor)
+    except (ValueError, TypeError):
+        return None
+
+
+@dataclass
+class Filtros:
+    """Filtros globales del dashboard, compartidos por el resumen y todas las
+    exportaciones: rango de fechas, estado actual del televisor y serial."""
+
+    desde: datetime.date | None = None
+    hasta: datetime.date | None = None
+    estado: str = ''  # '', 'habilitado' o 'inhabilitado'
+    serial: str = ''
+
+    @classmethod
+    def from_request(cls, params) -> 'Filtros':
+        estado = params.get('estado', '')
+        return cls(
+            desde=_parse_fecha(params.get('desde', '')),
+            hasta=_parse_fecha(params.get('hasta', '')),
+            estado=estado if estado in ESTADOS_FILTRO else '',
+            serial=(params.get('serial') or '').strip(),
+        )
+
+    @property
+    def activo(self) -> bool:
+        return bool(self.desde or self.hasta or self.estado or self.serial)
+
+
+def televisores_filtrados(f: Filtros | None = None):
+    """Televisores acotados por serial y estado actual (no por fecha: el estado
+    es el vigente, no tiene una fecha de corte)."""
+    f = f or Filtros()
+    qs = Televisor.objects.all()
+    if f.serial:
+        qs = qs.filter(serial_number__icontains=f.serial)
+    if f.estado == 'inhabilitado':
+        qs = qs.filter(inhabilitado=True)
+    elif f.estado == 'habilitado':
+        qs = qs.filter(inhabilitado=False)
+    return qs
+
+
+def pines_filtrados(f: Filtros | None = None):
+    """Pines usados acotados por fecha y serial del televisor asociado."""
+    f = f or Filtros()
+    qs = PinCodeUsado.objects.all()
+    if f.desde:
+        qs = qs.filter(creado__date__gte=f.desde)
+    if f.hasta:
+        qs = qs.filter(creado__date__lte=f.hasta)
+    if f.serial:
+        qs = qs.filter(televisor__serial_number__icontains=f.serial)
+    if f.estado == 'inhabilitado':
+        qs = qs.filter(televisor__inhabilitado=True)
+    elif f.estado == 'habilitado':
+        qs = qs.filter(televisor__inhabilitado=False)
+    return qs
+
+
+def acciones_querysets(f: Filtros | None = None):
+    """Querysets de acciones (individuales + masivas) ya filtrados. Reutilizado
+    por el resumen y por las exportaciones a nivel de registro."""
+    f = f or Filtros()
+    syncs = SyncJob.objects.select_related('televisor', 'usuario')
+    items = (
+        BulkSyncItem.objects
+        .select_related('televisor', 'job', 'job__usuario')
+        .filter(job__modo=BulkSyncJob.SYNC)
+    )
+    if f.desde:
+        syncs = syncs.filter(creado__date__gte=f.desde)
+        items = items.filter(job__creado__date__gte=f.desde)
+    if f.hasta:
+        syncs = syncs.filter(creado__date__lte=f.hasta)
+        items = items.filter(job__creado__date__lte=f.hasta)
+    if f.serial:
+        syncs = syncs.filter(televisor__serial_number__icontains=f.serial)
+        items = items.filter(televisor__serial_number__icontains=f.serial)
+    if f.estado == 'inhabilitado':
+        syncs = syncs.filter(televisor__inhabilitado=True)
+        items = items.filter(televisor__inhabilitado=True)
+    elif f.estado == 'habilitado':
+        syncs = syncs.filter(televisor__inhabilitado=False)
+        items = items.filter(televisor__inhabilitado=False)
+    return syncs, items
 
 
 def _resultado_syncjob(estado: str) -> str:
@@ -36,11 +131,12 @@ def _resultado_item(estado: str) -> str:
     return 'en_proceso'
 
 
-def acciones() -> list[dict]:
+def acciones(f: Filtros | None = None) -> list[dict]:
     """Todas las acciones de cambio de estado (individuales + masivas) como
     dicts homogéneos: {fecha, inhabilitar, resultado, mac, serial}."""
+    syncs, items = acciones_querysets(f)
     filas: list[dict] = []
-    for j in SyncJob.objects.select_related('televisor'):
+    for j in syncs:
         filas.append({
             'fecha': j.creado,
             'inhabilitar': j.inhabilitar,
@@ -48,9 +144,6 @@ def acciones() -> list[dict]:
             'mac': j.televisor.mac_address if j.televisor else '—',
             'serial': j.televisor.serial_number if j.televisor else '',
         })
-    items = BulkSyncItem.objects.select_related('televisor').filter(
-        job__modo=BulkSyncJob.SYNC
-    ).select_related('job')
     for it in items:
         filas.append({
             'fecha': it.job.creado,
@@ -62,14 +155,16 @@ def acciones() -> list[dict]:
     return filas
 
 
-def _estatus_inhabilitacion() -> dict:
+def _estatus_inhabilitacion(qs=None) -> dict:
     """Estatus de inhabilitación discriminando producto financiado
     (financiado = tiene número de crédito)."""
+    if qs is None:
+        qs = Televisor.objects.all()
     resultado = {
         'inhabilitado': {'financiado': 0, 'no_financiado': 0},
         'habilitado': {'financiado': 0, 'no_financiado': 0},
     }
-    for tv in Televisor.objects.all().only('inhabilitado', 'numero_credito'):
+    for tv in qs.only('inhabilitado', 'numero_credito'):
         estado = 'inhabilitado' if tv.inhabilitado else 'habilitado'
         clave = 'financiado' if (tv.numero_credito or '').strip() else 'no_financiado'
         resultado[estado][clave] += 1
@@ -160,10 +255,13 @@ class DashboardResumenView(APIView):
         if periodo not in ('dia', 'semana', 'mes', 'anio'):
             periodo = 'mes'
 
-        filas = acciones()
-        estatus = _estatus_inhabilitacion()
-        total_tv = Televisor.objects.count()
-        inhabilitados = Televisor.objects.filter(inhabilitado=True).count()
+        f = Filtros.from_request(request.query_params)
+        tv_qs = televisores_filtrados(f)
+
+        filas = acciones(f)
+        estatus = _estatus_inhabilitacion(tv_qs)
+        total_tv = tv_qs.count()
+        inhabilitados = tv_qs.filter(inhabilitado=True).count()
         financiados = (
             estatus['inhabilitado']['financiado']
             + estatus['habilitado']['financiado']
@@ -175,7 +273,7 @@ class DashboardResumenView(APIView):
                 'inhabilitados': inhabilitados,
                 'habilitados': total_tv - inhabilitados,
                 'financiados': financiados,
-                'pines_entregados': PinCodeUsado.objects.count(),
+                'pines_entregados': pines_filtrados(f).count(),
             },
             'estatus_inhabilitacion': estatus,
             'efectividad': _efectividad(filas),

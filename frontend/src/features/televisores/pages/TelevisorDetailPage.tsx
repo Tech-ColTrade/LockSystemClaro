@@ -39,16 +39,7 @@ import {
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 import { cn } from '@/lib/utils'
 
 function formatearFecha(iso: string): string {
@@ -155,14 +146,11 @@ export function TelevisorDetailPage() {
   const [registros, setRegistros] = useState<RegistrosResumen | null>(null)
 
   // Código Pin
-  const [grupos, setGrupos] = useState<PinCodeGroup[] | null>(null)
-  const [cargandoCodigos, setCargandoCodigos] = useState(false)
   const [codigosError, setCodigosError] = useState<string | null>(null)
   const [passInput, setPassInput] = useState('')
   const [pinResult, setPinResult] = useState<PinCodeGroup | null>(null)
   const [obteniendo, setObteniendo] = useState(false)
   const [noEncontrado, setNoEncontrado] = useState(false)
-  const [verTodos, setVerTodos] = useState(false)
   const [copiado, setCopiado] = useState(false)
 
   useEffect(() => {
@@ -181,22 +169,6 @@ export function TelevisorDetailPage() {
     }
   }, [id])
 
-  async function asegurarCodigos(): Promise<PinCodeGroup[] | null> {
-    if (grupos) return grupos
-    setCargandoCodigos(true)
-    setCodigosError(null)
-    try {
-      const r = await televisoresApi.pincodes(id!)
-      setGrupos(r.grupos)
-      return r.grupos
-    } catch (e) {
-      setCodigosError((e as Error).message)
-      return null
-    } finally {
-      setCargandoCodigos(false)
-    }
-  }
-
   async function obtenerPin(e: React.FormEvent) {
     e.preventDefault()
     setPinResult(null)
@@ -206,18 +178,12 @@ export function TelevisorDetailPage() {
     try {
       const r = await televisoresApi.usarPincode(id!, passInput.trim())
       setPinResult({ codeId: '', passCode: r.passcode, pinCode: r.pin_code })
-      setGrupos(null) // el código quedó usado: invalida el "ver todos" en caché
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) setNoEncontrado(true)
       else setCodigosError((err as Error).message)
     } finally {
       setObteniendo(false)
     }
-  }
-
-  async function toggleTodos() {
-    if (!verTodos) await asegurarCodigos()
-    setVerTodos((v) => !v)
   }
 
   function copiar(texto: string) {
@@ -487,45 +453,6 @@ export function TelevisorDetailPage() {
                 )}
                 {copiado ? 'Copiado' : 'Copiar'}
               </Button>
-            </div>
-          )}
-
-          <Separator />
-
-          <Button
-            type="button"
-            variant="link"
-            className="h-auto w-fit p-0"
-            onClick={toggleTodos}
-            disabled={cargandoCodigos}
-          >
-            {cargandoCodigos
-              ? 'Cargando…'
-              : verTodos
-                ? 'Ocultar todos los códigos'
-                : 'Ver todos los códigos disponibles'}
-          </Button>
-
-          {verTodos && grupos && (
-            <div className="max-h-72 overflow-auto rounded-lg border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Código de Acceso</TableHead>
-                    <TableHead>Código Pin</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {grupos.map((g) => (
-                    <TableRow key={g.codeId}>
-                      <TableCell className="font-medium">{g.passCode}</TableCell>
-                      <TableCell className="font-mono tabular-nums">
-                        {g.pinCode}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
             </div>
           )}
         </CardContent>

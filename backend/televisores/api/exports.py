@@ -14,6 +14,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from televisores.models import BulkSyncItem, BulkSyncJob, PinCodeUsado, SyncJob
 
 from .filtros import filtrar_por_fecha, filtrar_sincronizaciones
+from .registros import nombre_usuario
 
 XLSX_CONTENT_TYPE = (
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -71,7 +72,10 @@ def exportar_sincronizaciones(
     wb = Workbook()
     ws = wb.active
     ws.title = 'Sincronizaciones'
-    ws.append(['Fecha', 'Dirección MAC', 'Acción', 'Resultado', 'Tipo', 'Mensaje'])
+    ws.append([
+        'Fecha', 'Número de serial', 'Dirección MAC', 'Usuario',
+        'Acción', 'Resultado', 'Tipo', 'Mensaje',
+    ])
     _estilar_encabezado(ws)
 
     syncs = SyncJob.objects.all()
@@ -85,25 +89,45 @@ def exportar_sincronizaciones(
     syncs, items = filtrar_sincronizaciones(syncs, items, desde, hasta)
 
     filas = []
-    # values_list evita instanciar los modelos; la MAC del individual se saca
-    # por la relación en vez de con un select_related + acceso al objeto.
-    for creado, mac, inhabilitar, estado, error in syncs.values_list(
-        'creado', 'televisor__mac_address', 'inhabilitar', 'estado', 'error'
-    ).iterator(chunk_size=2000):
+    # values_list evita instanciar los modelos; la MAC/serial del individual se
+    # sacan por la relación, y el nombre del usuario se arma en SQL.
+    for creado, serial, mac, usuario, inhabilitar, estado, error in (
+        syncs.annotate(usuario_nombre=nombre_usuario('usuario')).values_list(
+            'creado',
+            'televisor__serial_number',
+            'televisor__mac_address',
+            'usuario_nombre',
+            'inhabilitar',
+            'estado',
+            'error',
+        ).iterator(chunk_size=2000)
+    ):
         filas.append((
             creado,
+            serial or '—',
             mac or '—',
+            usuario or '—',
             'Inhabilitar' if inhabilitar else 'Habilitar',
             _resultado_syncjob(estado),
             'Individual',
             error or '',
         ))
-    for creado, mac, inhabilitar, estado, mensaje in items.values_list(
-        'job__creado', 'mac_address', 'inhabilitar', 'estado', 'mensaje'
-    ).iterator(chunk_size=2000):
+    for creado, serial, mac, usuario, inhabilitar, estado, mensaje in (
+        items.annotate(usuario_nombre=nombre_usuario('job__usuario')).values_list(
+            'job__creado',
+            'televisor__serial_number',
+            'mac_address',
+            'usuario_nombre',
+            'inhabilitar',
+            'estado',
+            'mensaje',
+        ).iterator(chunk_size=2000)
+    ):
         filas.append((
             creado,
+            serial or '—',
             mac,
+            usuario or '—',
             'Inhabilitar' if inhabilitar else 'Habilitar',
             _resultado_item(estado),
             'Masivo',
@@ -114,10 +138,10 @@ def exportar_sincronizaciones(
     for f in filas:
         ws.append([
             timezone.localtime(f[0]).strftime('%d/%m/%Y %H:%M'),
-            f[1], f[2], f[3], f[4], f[5],
+            f[1], f[2], f[3], f[4], f[5], f[6], f[7],
         ])
 
-    for col, ancho in zip('ABCDEF', (18, 20, 14, 12, 12, 40)):
+    for col, ancho in zip('ABCDEFGH', (18, 20, 20, 24, 14, 12, 12, 40)):
         ws.column_dimensions[col].width = ancho
 
     return _respuesta_xlsx(
@@ -138,29 +162,32 @@ def exportar_bulk_job(job: BulkSyncJob) -> HttpResponse:
     ws = wb.active
     ws.title = 'Validación' if es_validacion else 'Sincronización'
 
+    items = job.items.select_related('televisor')
     if es_validacion:
-        ws.append(['Dirección MAC', 'Portal', 'App', 'Coincide', 'Mensaje'])
+        ws.append(['Dirección MAC', 'Serial', 'Portal', 'App', 'Coincide', 'Mensaje'])
         _estilar_encabezado(ws)
-        for it in job.items.all():
+        for it in items:
             ws.append([
                 it.mac_address,
+                it.televisor.serial_number if it.televisor else '',
                 _txt_bool(it.remoto_inhabilitado, 'Inhabilitado', 'Habilitado'),
                 _txt_bool(it.local_inhabilitado, 'Inhabilitado', 'Habilitado'),
                 _txt_bool(it.coincide, 'Sí', 'No'),
                 it.mensaje or '',
             ])
-        anchos = zip('ABCDE', (20, 16, 16, 12, 40))
+        anchos = zip('ABCDEF', (20, 20, 16, 16, 12, 40))
     else:
-        ws.append(['Dirección MAC', 'Acción', 'Resultado', 'Mensaje'])
+        ws.append(['Dirección MAC', 'Serial', 'Acción', 'Resultado', 'Mensaje'])
         _estilar_encabezado(ws)
-        for it in job.items.all():
+        for it in items:
             ws.append([
                 it.mac_address,
+                it.televisor.serial_number if it.televisor else '',
                 'Inhabilitar' if it.inhabilitar else 'Habilitar',
                 _resultado_item(it.estado),
                 it.mensaje or '',
             ])
-        anchos = zip('ABCD', (20, 14, 12, 40))
+        anchos = zip('ABCDE', (20, 20, 14, 12, 40))
 
     for col, ancho in anchos:
         ws.column_dimensions[col].width = ancho
@@ -210,8 +237,10 @@ def exportar_pincodes(
     """
     wb = Workbook()
     ws = wb.active
-    ws.title = 'Pin Codes'
-    ws.append(['Fecha', 'Dirección MAC', 'Código de Acceso', 'Código Pin'])
+    ws.title = 'Códigos Pin'
+    ws.append([
+        'Fecha', 'Número de serial', 'Dirección MAC', 'Código de Acceso', 'Código Pin',
+    ])
     _estilar_encabezado(ws)
 
     qs = PinCodeUsado.objects.all()
@@ -222,19 +251,22 @@ def exportar_pincodes(
         filtrar_por_fecha(qs, desde, hasta)
         .order_by('-creado')
         # values_list + iterator: no construye instancias del modelo ni carga la
-        # bitácora entera en memoria de golpe.
-        .values_list('creado', 'mac_address', 'passcode', 'pin_code')
+        # bitácora entera en memoria de golpe. El serial se saca por la relación.
+        .values_list(
+            'creado', 'televisor__serial_number', 'mac_address', 'passcode', 'pin_code'
+        )
         .iterator(chunk_size=2000)
     )
-    for creado, mac, passcode, pin in filas:
+    for creado, serial, mac, passcode, pin in filas:
         ws.append([
             timezone.localtime(creado).strftime('%d/%m/%Y %H:%M'),
+            serial or '—',
             mac,
             passcode,
             pin,
         ])
 
-    for col, ancho in zip('ABCD', (18, 20, 18, 16)):
+    for col, ancho in zip('ABCDE', (18, 20, 20, 18, 16)):
         ws.column_dimensions[col].width = ancho
 
     return _respuesta_xlsx(wb, _nombre_archivo('pincodes', televisor, desde, hasta))

@@ -218,8 +218,8 @@ export function TelevisoresPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Dirección MAC</TableHead>
               <TableHead>Número de serial</TableHead>
+              <TableHead>Dirección MAC</TableHead>
               <TableHead>N° Crédito</TableHead>
               <TableHead>Estado</TableHead>
               <TableHead className="text-right">Acciones</TableHead>
@@ -258,10 +258,10 @@ export function TelevisoresPage() {
                 <TableRow key={tv.id}>
                   <TableCell className="font-medium">
                     <Link to={`/televisores/${tv.id}`} className="hover:underline">
-                      {tv.mac_address}
+                      {tv.serial_number || '—'}
                     </Link>
                   </TableCell>
-                  <TableCell>{tv.serial_number || '—'}</TableCell>
+                  <TableCell>{tv.mac_address}</TableCell>
                   <TableCell className="break-all">{tv.numero_credito || '—'}</TableCell>
                   <TableCell>
                     <EstadoBadge inhabilitado={tv.inhabilitado} />
