@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -40,11 +40,10 @@ function fecha(iso: string): string {
 
 export function TelevisorPincodesUsadosPage() {
   const { id } = useParams()
-  const fetcher = useCallback(
-    (page: number) => televisoresApi.pincodesUsadosDeTV(id!, page),
-    [id],
+  const { items, count, page, setPage, loading, error } = usePaginatedList(
+    ['televisor-pincodes', id],
+    (page) => televisoresApi.pincodesUsadosDeTV(id!, page),
   )
-  const { items, count, page, setPage, loading, error } = usePaginatedList(fetcher)
 
   const [exportando, setExportando] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)

@@ -1,32 +1,32 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { keepPreviousData, useQuery, type QueryKey } from '@tanstack/react-query'
 import type { Paginated } from '@/shared/types'
 
-/** Maneja el estado de un listado paginado (página, carga, error). */
+/**
+ * Estado de un listado paginado sobre TanStack Query.
+ *
+ * `baseKey` identifica el listado en la caché (debe incluir los filtros activos,
+ * p. ej. `['sincronizaciones', { desde, hasta }]`); la página se añade sola. Así
+ * volver a un listado ya visto es instantáneo y cambiar de página no parpadea
+ * (mantiene los datos previos mientras carga la siguiente).
+ */
 export function usePaginatedList<T>(
+  baseKey: QueryKey,
   fetcher: (page: number) => Promise<Paginated<T>>,
 ) {
-  const [items, setItems] = useState<T[]>([])
-  const [count, setCount] = useState(0)
   const [page, setPage] = useState(1)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const query = useQuery({
+    queryKey: [...baseKey, page],
+    queryFn: () => fetcher(page),
+    placeholderData: keepPreviousData,
+  })
 
-  useEffect(() => {
-    let active = true
-    setLoading(true)
-    setError(null)
-    fetcher(page)
-      .then((data) => {
-        if (!active) return
-        setItems(data.results)
-        setCount(data.count)
-      })
-      .catch((e) => active && setError((e as Error).message))
-      .finally(() => active && setLoading(false))
-    return () => {
-      active = false
-    }
-  }, [page, fetcher])
-
-  return { items, count, page, setPage, loading, error }
+  return {
+    items: query.data?.results ?? [],
+    count: query.data?.count ?? 0,
+    page,
+    setPage,
+    loading: query.isLoading,
+    error: query.error ? (query.error as Error).message : null,
+  }
 }

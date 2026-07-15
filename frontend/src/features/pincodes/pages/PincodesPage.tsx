@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ChevronLeft, ChevronRight, CircleAlert, Download, X } from 'lucide-react'
 import { registrosApi } from '@/features/televisores/api/registros.api'
 import { televisoresApi } from '@/features/televisores/api/televisores.api'
@@ -36,13 +36,10 @@ export function PincodesPage() {
   const [desde, setDesde] = useState('')
   const [hasta, setHasta] = useState('')
 
-  // useCallback: usePaginatedList tiene el fetcher como dependencia del efecto,
-  // así que sin memoizar recargaría en cada render.
-  const fetcher = useCallback(
-    (page: number) => registrosApi.pincodes(page, { desde, hasta }),
-    [desde, hasta],
+  const { items, count, page, setPage, loading, error } = usePaginatedList(
+    ['pincodes', { desde, hasta }],
+    (page) => registrosApi.pincodes(page, { desde, hasta }),
   )
-  const { items, count, page, setPage, loading, error } = usePaginatedList(fetcher)
 
   const [exportando, setExportando] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -19,14 +19,14 @@ import {
   Tv,
 } from 'lucide-react'
 import { televisoresApi } from '@/features/televisores/api/televisores.api'
+import {
+  useDeleteTelevisor,
+  useTelevisor,
+  useTelevisorRegistros,
+} from '@/features/televisores/api/televisores.queries'
 import { usePermissions } from '@/features/auth/usePermissions'
 import { ApiError } from '@/lib/http/errors'
-import type {
-  PinCodeGroup,
-  RegistrosResumen,
-  Televisor,
-  ValidarResult,
-} from '@/features/televisores/types'
+import type { PinCodeGroup, ValidarResult } from '@/features/televisores/types'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -134,16 +134,22 @@ export function TelevisorDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { canOperate } = usePermissions()
-  const [tv, setTv] = useState<Televisor | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+
+  // Lecturas cacheadas (React Query). El televisor lo comparte con la lista y
+  // el formulario: volver aquí es instantáneo mientras revalida por detrás.
+  const detailQuery = useTelevisor(id)
+  const tv = detailQuery.data ?? null
+  const loading = detailQuery.isLoading
+  const registros = useTelevisorRegistros(id).data ?? null
+  const deleteMut = useDeleteTelevisor()
+  const [actionError, setActionError] = useState<string | null>(null)
+  const error =
+    actionError ?? (detailQuery.error ? (detailQuery.error as Error).message : null)
+  const setError = setActionError
 
   // Validación
   const [validando, setValidando] = useState(false)
   const [validacion, setValidacion] = useState<ValidarResult | null>(null)
-
-  // Registros (contadores)
-  const [registros, setRegistros] = useState<RegistrosResumen | null>(null)
 
   // Código Pin
   const [codigosError, setCodigosError] = useState<string | null>(null)
@@ -152,22 +158,6 @@ export function TelevisorDetailPage() {
   const [obteniendo, setObteniendo] = useState(false)
   const [noEncontrado, setNoEncontrado] = useState(false)
   const [copiado, setCopiado] = useState(false)
-
-  useEffect(() => {
-    let active = true
-    televisoresApi
-      .get(id!)
-      .then((data) => active && setTv(data))
-      .catch((e) => active && setError((e as Error).message))
-      .finally(() => active && setLoading(false))
-    televisoresApi
-      .registros(id!)
-      .then((r) => active && setRegistros(r))
-      .catch(() => {})
-    return () => {
-      active = false
-    }
-  }, [id])
 
   async function obtenerPin(e: React.FormEvent) {
     e.preventDefault()
@@ -208,7 +198,7 @@ export function TelevisorDetailPage() {
   async function eliminar() {
     if (!tv || !confirm(`¿Eliminar el televisor ${tv.mac_address}?`)) return
     try {
-      await televisoresApi.remove(tv.id)
+      await deleteMut.mutateAsync(tv.id)
       navigate('/televisores')
     } catch (e) {
       setError((e as Error).message)

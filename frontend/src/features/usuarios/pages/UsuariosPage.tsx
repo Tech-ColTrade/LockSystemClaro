@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, CircleAlert, Plus } from 'lucide-react'
-import { usuariosApi } from '@/features/usuarios/api/usuarios.api'
-import type { User } from '@/features/auth/types'
+import { useUsuarios } from '@/features/usuarios/api/usuarios.queries'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -21,31 +20,14 @@ import {
 const PAGE_SIZE = 10
 
 export function UsuariosPage() {
-  const [items, setItems] = useState<User[]>([])
-  const [count, setCount] = useState(0)
   const [page, setPage] = useState(1)
   const [query, setQuery] = useState('')
   const [search, setSearch] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let active = true
-    setLoading(true)
-    setError(null)
-    usuariosApi
-      .list(search, page)
-      .then((data) => {
-        if (!active) return
-        setItems(data.results)
-        setCount(data.count)
-      })
-      .catch((e) => active && setError((e as Error).message))
-      .finally(() => active && setLoading(false))
-    return () => {
-      active = false
-    }
-  }, [search, page])
+  const listQuery = useUsuarios(search, page)
+  const items = listQuery.data?.results ?? []
+  const count = listQuery.data?.count ?? 0
+  const loading = listQuery.isLoading
+  const error = listQuery.error ? (listQuery.error as Error).message : null
 
   function onSearch(e: React.FormEvent) {
     e.preventDefault()

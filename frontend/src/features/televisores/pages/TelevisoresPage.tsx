@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useTelevisores } from '@/features/televisores/api/televisores.queries'
 import {
   ChevronLeft,
   ChevronRight,
@@ -18,7 +19,7 @@ import {
 } from 'lucide-react'
 import { televisoresApi } from '@/features/televisores/api/televisores.api'
 import { usePermissions } from '@/features/auth/usePermissions'
-import type { BulkSyncStatus, Televisor } from '@/features/televisores/types'
+import type { BulkSyncStatus } from '@/features/televisores/types'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -60,13 +61,18 @@ function EstadoBadge({ inhabilitado }: { inhabilitado: boolean }) {
 
 export function TelevisoresPage() {
   const { canOperate } = usePermissions()
-  const [items, setItems] = useState<Televisor[]>([])
-  const [count, setCount] = useState(0)
   const [page, setPage] = useState(1)
   const [query, setQuery] = useState('')
   const [search, setSearch] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  // La lista la sirve React Query (caché + revalidación). El estado imperativo
+  // que queda aquí es solo el de la validación masiva (job) y sus errores.
+  const listQuery = useTelevisores(search, page)
+  const items = listQuery.data?.results ?? []
+  const count = listQuery.data?.count ?? 0
+  const loading = listQuery.isLoading
+  const [actionError, setActionError] = useState<string | null>(null)
+  const error = actionError ?? (listQuery.error ? (listQuery.error as Error).message : null)
+  const setError = setActionError
   const [valJob, setValJob] = useState<BulkSyncStatus | null>(null)
   const [validando, setValidando] = useState(false)
   const [cancelandoVal, setCancelandoVal] = useState(false)
@@ -78,24 +84,6 @@ export function TelevisoresPage() {
       if (valPollRef.current) window.clearInterval(valPollRef.current)
     }
   }, [])
-
-  useEffect(() => {
-    let active = true
-    setLoading(true)
-    setError(null)
-    televisoresApi
-      .list(search, page)
-      .then((data) => {
-        if (!active) return
-        setItems(data.results)
-        setCount(data.count)
-      })
-      .catch((e) => active && setError((e as Error).message))
-      .finally(() => active && setLoading(false))
-    return () => {
-      active = false
-    }
-  }, [search, page])
 
   function onSearch(e: React.FormEvent) {
     e.preventDefault()

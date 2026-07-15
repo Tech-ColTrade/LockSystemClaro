@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -66,11 +66,10 @@ function ResultadoBadge({ resultado }: { resultado: string }) {
 
 export function TelevisorSincronizacionesPage() {
   const { id } = useParams()
-  const fetcher = useCallback(
-    (page: number) => televisoresApi.sincronizacionesDeTV(id!, page),
-    [id],
+  const { items, count, page, setPage, loading, error } = usePaginatedList(
+    ['televisor-sincronizaciones', id],
+    (page) => televisoresApi.sincronizacionesDeTV(id!, page),
   )
-  const { items, count, page, setPage, loading, error } = usePaginatedList(fetcher)
 
   const [exportando, setExportando] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)

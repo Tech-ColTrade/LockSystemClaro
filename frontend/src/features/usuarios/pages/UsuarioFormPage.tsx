@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { CircleAlert, Loader2 } from 'lucide-react'
-import { usuariosApi } from '@/features/usuarios/api/usuarios.api'
+import {
+  useCreateUsuario,
+  useUpdateUsuario,
+  useUsuario,
+} from '@/features/usuarios/api/usuarios.queries'
 import { ROLE_LABELS } from '@/features/auth/permissions'
 import { usePermissions } from '@/features/auth/usePermissions'
 import type { Role } from '@/features/auth/types'
@@ -70,46 +74,44 @@ export function UsuarioFormPage() {
 
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [general, setGeneral] = useState<string | null>(null)
-  const [loading, setLoading] = useState(isEdit)
-  const [saving, setSaving] = useState(false)
 
   const isSelf = isEdit && current?.id === id
 
+  const detailQuery = useUsuario(isEdit ? id : undefined)
+  const loading = isEdit && detailQuery.isLoading
+  const createMut = useCreateUsuario()
+  const updateMut = useUpdateUsuario(id ?? '')
+  const saving = createMut.isPending || updateMut.isPending
+
+  // Siembra el formulario cuando llegan los datos del usuario a editar.
+  const u = detailQuery.data
   useEffect(() => {
-    if (!isEdit) return
-    let active = true
-    usuariosApi
-      .get(id!)
-      .then((u) => {
-        if (!active) return
-        setEmail(u.email)
-        setFirstName(u.first_name)
-        setLastName(u.last_name)
-        setRole(u.role)
-        setIsActive(u.is_active)
-      })
-      .catch((e) => active && setGeneral((e as Error).message))
-      .finally(() => active && setLoading(false))
-    return () => {
-      active = false
+    if (u) {
+      setEmail(u.email)
+      setFirstName(u.first_name)
+      setLastName(u.last_name)
+      setRole(u.role)
+      setIsActive(u.is_active)
     }
-  }, [id, isEdit])
+  }, [u])
+  useEffect(() => {
+    if (detailQuery.error) setGeneral((detailQuery.error as Error).message)
+  }, [detailQuery.error])
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
-    setSaving(true)
     setFieldErrors({})
     setGeneral(null)
     try {
       if (isEdit) {
-        await usuariosApi.update(id!, {
+        await updateMut.mutateAsync({
           first_name: firstName,
           last_name: lastName,
           role,
           is_active: isActive,
         })
       } else {
-        await usuariosApi.create({
+        await createMut.mutateAsync({
           email,
           password,
           first_name: firstName,
@@ -122,8 +124,6 @@ export function UsuarioFormPage() {
       const { fields, general: g } = parseErrors(err)
       setFieldErrors(fields)
       setGeneral(g)
-    } finally {
-      setSaving(false)
     }
   }
 

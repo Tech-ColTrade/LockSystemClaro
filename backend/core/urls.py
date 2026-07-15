@@ -12,6 +12,11 @@ urlpatterns = [
     path('api/', include('televisores.api.urls')),
     path('api/', include('televisores.api.dashboard_urls')),
 
+    # API de integración (por serial + API-key), aislada del panel.
+    path('api/integracion/', include('televisores.api.integracion_urls')),
+    # Gestión de API-keys desde el panel (solo Administrador).
+    path('api/integracion/', include('integracion.api.urls')),
+
     # Usuarios y autenticación (register, token, refresh, verify, me)
     path('api/', include('users.api.urls')),
 ]

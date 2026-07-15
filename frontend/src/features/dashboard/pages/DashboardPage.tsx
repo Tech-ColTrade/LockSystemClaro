@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { X } from 'lucide-react'
 import {
   Bar,
@@ -14,6 +14,7 @@ import {
   YAxis,
 } from 'recharts'
 import { dashboardApi, type DashboardFiltros } from '@/features/dashboard/api/dashboard.api'
+import { useDashboardResumen } from '@/features/dashboard/api/dashboard.queries'
 import { useChartColors, type ChartColors } from '@/features/dashboard/chartTheme'
 import {
   ChartCard,
@@ -22,7 +23,7 @@ import {
   StatTile,
   type Tone,
 } from '@/features/dashboard/components/DashboardUI'
-import type { DashboardResumen, Periodo } from '@/features/dashboard/types'
+import type { Periodo } from '@/features/dashboard/types'
 import { ApiError } from '@/lib/http/errors'
 import * as I from '@/features/dashboard/components/icons'
 import { RangoFechas } from '@/shared/components/RangoFechas'
@@ -227,10 +228,7 @@ function Donut({
 export function DashboardPage() {
   const c = useChartColors()
   const [periodo, setPeriodo] = useState<Periodo>('mes')
-  const [data, setData] = useState<DashboardResumen | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [updated, setUpdated] = useState<Date | null>(null)
+  const [actionError, setActionError] = useState('')
 
   // Filtros globales: se aplican a todas las tarjetas y a las exportaciones.
   const [estado, setEstado] = useState('todos')
@@ -251,24 +249,27 @@ export function DashboardPage() {
     filtros.desde || filtros.hasta || filtros.estado || filtros.serial,
   )
 
-  const cargar = useCallback(async () => {
-    setLoading(true)
-    setError('')
-    try {
-      setData(await dashboardApi.resumen(periodo, filtros))
-      setUpdated(new Date())
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'No se pudo cargar el dashboard.')
-    } finally {
-      setLoading(false)
-    }
-  }, [periodo, filtros])
-
-  // Debounce: al escribir en el serial no se dispara una petición por tecla.
+  // Debounce: al escribir en el serial no se dispara una consulta por tecla.
+  // Solo los filtros ya "asentados" alimentan la query (y por tanto su caché).
+  const [filtrosDebounced, setFiltrosDebounced] = useState(filtros)
   useEffect(() => {
-    const t = window.setTimeout(cargar, 300)
+    const t = window.setTimeout(() => setFiltrosDebounced(filtros), 300)
     return () => window.clearTimeout(t)
-  }, [cargar])
+  }, [filtros])
+
+  // Los datos los sirve React Query (cacheados por periodo + filtros).
+  const resumenQuery = useDashboardResumen(periodo, filtrosDebounced)
+  const data = resumenQuery.data ?? null
+  const loading = resumenQuery.isLoading
+  const updated = data ? new Date(resumenQuery.dataUpdatedAt) : null
+  const error =
+    actionError ||
+    (resumenQuery.error
+      ? resumenQuery.error instanceof ApiError
+        ? resumenQuery.error.message
+        : 'No se pudo cargar el dashboard.'
+      : '')
+  const cargar = () => resumenQuery.refetch()
 
   function limpiarFiltros() {
     setEstado('todos')
@@ -278,10 +279,11 @@ export function DashboardPage() {
   }
 
   const descargar = async (fn: () => Promise<void>) => {
+    setActionError('')
     try {
       await fn()
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'No se pudo generar el archivo.')
+      setActionError(e instanceof ApiError ? e.message : 'No se pudo generar el archivo.')
     }
   }
 
@@ -360,9 +362,9 @@ export function DashboardPage() {
             variant="outline"
             size="sm"
             onClick={cargar}
-            disabled={loading}
+            disabled={resumenQuery.isFetching}
           >
-            <I.Refresh className={loading ? 'animate-spin' : ''} />
+            <I.Refresh className={resumenQuery.isFetching ? 'animate-spin' : ''} />
             Actualizar
           </Button>
         </div>

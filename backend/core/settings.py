@@ -69,6 +69,7 @@ INSTALLED_APPS = [
     'users',
     'api',
     'televisores',
+    'integracion',  # API-keys + API de integración (por serial)
 ]
 
 # Modelo de usuario personalizado (login por email, PK UUID).
@@ -237,6 +238,7 @@ REST_FRAMEWORK = {
         'user': '1000/hour',
         'login': '5/min',      # obtención de token
         'register': '10/hour',  # alta de cuentas
+        'integracion': '2000/hour',  # API-key de integración (por clave)
     },
     # En producción se sirve solo JSON; el navegador de la API queda para dev.
     'DEFAULT_RENDERER_CLASSES': (

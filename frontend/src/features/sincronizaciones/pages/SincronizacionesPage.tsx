@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   ChevronLeft,
   ChevronRight,
@@ -69,13 +69,10 @@ export function SincronizacionesPage() {
   const [desde, setDesde] = useState('')
   const [hasta, setHasta] = useState('')
 
-  // useCallback: usePaginatedList tiene el fetcher como dependencia del efecto,
-  // así que sin memoizar recargaría en cada render.
-  const fetcher = useCallback(
-    (page: number) => registrosApi.sincronizaciones(page, { desde, hasta }),
-    [desde, hasta],
+  const { items, count, page, setPage, loading, error } = usePaginatedList(
+    ['sincronizaciones', { desde, hasta }],
+    (page) => registrosApi.sincronizaciones(page, { desde, hasta }),
   )
-  const { items, count, page, setPage, loading, error } = usePaginatedList(fetcher)
 
   const [exportando, setExportando] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)

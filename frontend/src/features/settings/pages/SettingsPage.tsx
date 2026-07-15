@@ -4,6 +4,7 @@ import {
   CircleAlert,
   CircleCheck,
   Info,
+  KeyRound,
   Loader2,
   Lock,
   Moon,
@@ -12,7 +13,9 @@ import {
   User,
 } from 'lucide-react'
 import { useAuth } from '@/features/auth/context/auth-context'
+import { isAdmin } from '@/features/auth/permissions'
 import { settingsApi } from '@/features/settings/api/settings.api'
+import { ApiKeysPanel } from '@/features/settings/components/ApiKeysPanel'
 import { ACCENTS, useAccent } from '@/features/settings/accent'
 import { useLayoutPrefs } from '@/shared/layout/useLayoutPrefs'
 import { ApiError } from '@/lib/http/errors'
@@ -364,6 +367,11 @@ function AparienciaPanel() {
 // Página: tabs verticales (nav) + panel
 // ---------------------------------------------------------------------------
 export function SettingsPage() {
+  const { user } = useAuth()
+  // Las API keys solo las gestiona el Administrador (o superadmin); el backend
+  // es el guardia real (IsAdminRole), aquí solo se oculta el tab.
+  const puedeApiKeys = isAdmin(user)
+
   return (
     <div className="mx-auto max-w-4xl">
       <div className="mb-6">
@@ -384,6 +392,11 @@ export function SettingsPage() {
           <TabsTrigger value="apariencia">
             <Palette /> Apariencia
           </TabsTrigger>
+          {puedeApiKeys && (
+            <TabsTrigger value="apikeys">
+              <KeyRound /> API keys
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="perfil">
@@ -395,6 +408,11 @@ export function SettingsPage() {
         <TabsContent value="apariencia">
           <AparienciaPanel />
         </TabsContent>
+        {puedeApiKeys && (
+          <TabsContent value="apikeys">
+            <ApiKeysPanel />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   )

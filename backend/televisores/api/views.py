@@ -20,6 +20,19 @@ def client_ip(request) -> str | None:
     if xff:
         return xff.split(',')[0].strip()
     return request.META.get('REMOTE_ADDR')
+
+
+def usuario_para_auditoria(request):
+    """Usuario real para guardar como FK de auditoría, o None.
+
+    Las peticiones de la API de integración traen un usuario sintético de
+    API-key (pk=None) que no es una fila de la base: no puede guardarse como
+    llave foránea. En ese caso se audita con usuario vacío + la IP. Para el panel
+    (JWT) devuelve el usuario autenticado normal."""
+    user = getattr(request, 'user', None)
+    if user is None or not user.is_authenticated or getattr(user, 'pk', None) is None:
+        return None
+    return user
 from .serializers import (
     BulkSyncJobSerializer,
     PinCodeUsadoSerializer,
@@ -233,7 +246,7 @@ class TelevisorViewSet(viewsets.ModelViewSet):
             mac_address=tv.mac_address,
             passcode=passcode,
             pin_code=grupo['pinCode'],
-            usuario=request.user if request.user.is_authenticated else None,
+            usuario=usuario_para_auditoria(request),
             ip=client_ip(request),
         )
         return Response({
@@ -259,7 +272,7 @@ class TelevisorViewSet(viewsets.ModelViewSet):
         tv.save(update_fields=['inhabilitado'])
 
         job = lanzar_sync_job(
-            tv, inhabilitar, usuario=request.user, ip=client_ip(request)
+            tv, inhabilitar, usuario=usuario_para_auditoria(request), ip=client_ip(request)
         )
         return Response(
             {
@@ -279,9 +292,11 @@ class TelevisorViewSet(viewsets.ModelViewSet):
         """Estado/progreso de un SyncJob (para polling desde el frontend)."""
         from televisores.models import SyncJob
 
-        try:
-            job = SyncJob.objects.get(pk=job_id, televisor_id=pk)
-        except SyncJob.DoesNotExist:
+        # get_object() resuelve el televisor por la columna que use el viewset
+        # (PK en el panel, serial en integración).
+        tv = self.get_object()
+        job = SyncJob.objects.filter(pk=job_id, televisor=tv).first()
+        if job is None:
             return Response(
                 {'detail': 'Job no encontrado.'}, status=status.HTTP_404_NOT_FOUND
             )

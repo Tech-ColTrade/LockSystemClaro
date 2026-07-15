@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, CircleAlert, Loader2, Pencil, Plus } from 'lucide-react'
-import { televisoresApi } from '@/features/televisores/api/televisores.api'
+import {
+  useCreateTelevisor,
+  useTelevisor,
+  useUpdateTelevisor,
+} from '@/features/televisores/api/televisores.queries'
 import type { TelevisorInput } from '@/features/televisores/types'
 import { ApiError } from '@/lib/http/errors'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -55,28 +59,28 @@ export function TelevisorFormPage() {
   const [form, setForm] = useState<TelevisorInput>(emptyForm)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [general, setGeneral] = useState<string | null>(null)
-  const [loading, setLoading] = useState(isEdit)
-  const [saving, setSaving] = useState(false)
 
+  // Carga del televisor a editar (React Query: cacheada y compartida con la lista).
+  const detailQuery = useTelevisor(isEdit ? id : undefined)
+  const loading = isEdit && detailQuery.isLoading
+  const createMut = useCreateTelevisor()
+  const updateMut = useUpdateTelevisor(id ?? '')
+  const saving = createMut.isPending || updateMut.isPending
+
+  // Al llegar los datos del televisor, se siembran en el formulario editable.
+  const tv = detailQuery.data
   useEffect(() => {
-    if (!isEdit) return
-    let active = true
-    televisoresApi
-      .get(id!)
-      .then((tv) => {
-        if (!active) return
-        setForm({
-          mac_address: tv.mac_address,
-          serial_number: tv.serial_number,
-          numero_credito: tv.numero_credito,
-        })
+    if (tv) {
+      setForm({
+        mac_address: tv.mac_address,
+        serial_number: tv.serial_number,
+        numero_credito: tv.numero_credito,
       })
-      .catch((e) => active && setGeneral((e as Error).message))
-      .finally(() => active && setLoading(false))
-    return () => {
-      active = false
     }
-  }, [id, isEdit])
+  }, [tv])
+  useEffect(() => {
+    if (detailQuery.error) setGeneral((detailQuery.error as Error).message)
+  }, [detailQuery.error])
 
   function set<K extends keyof TelevisorInput>(key: K, value: string) {
     setForm((f) => ({ ...f, [key]: value }))
@@ -84,20 +88,17 @@ export function TelevisorFormPage() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
-    setSaving(true)
     setFieldErrors({})
     setGeneral(null)
     try {
       const saved = isEdit
-        ? await televisoresApi.update(id!, form)
-        : await televisoresApi.create(form)
+        ? await updateMut.mutateAsync(form)
+        : await createMut.mutateAsync(form)
       navigate(`/televisores/${saved.id}`)
     } catch (err) {
       const { fields, general: g } = parseErrors(err)
       setFieldErrors(fields)
       setGeneral(g)
-    } finally {
-      setSaving(false)
     }
   }
 
