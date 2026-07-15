@@ -9,3 +9,10 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv
 }
+
+// Import de documentos como URL de asset (Vite resuelve la ruta con hash,
+// respetando el `base` de despliegue: sirve igual en dev y en la web).
+declare module '*.docx' {
+  const src: string
+  export default src
+}

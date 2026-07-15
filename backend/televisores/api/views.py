@@ -96,9 +96,26 @@ class TelevisorViewSet(viewsets.ModelViewSet):
     # ------------------------------------------------------------------
     # Integración con el portal WhaleTV (Device Lock API)
     # ------------------------------------------------------------------
+    @staticmethod
+    def _respuesta_mac_invalida() -> Response:
+        """400 cuando la MAC guardada no permite derivar el EUI-64 (p. ej. datos
+        de prueba con 'XX'). No es un fallo del servidor: es un dato inválido."""
+        return Response(
+            {
+                'detail': (
+                    'La dirección MAC del televisor no es válida para consultar el '
+                    'portal (no se puede derivar el EUI-64). Corrige la MAC o define '
+                    'el EUI-64 manualmente.'
+                )
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     def _leer_estado_portal(self, tv: Televisor) -> Response | dict:
         try:
             data = PortalClient().get_status(tv.eui64_portal)
+        except ValueError:
+            return self._respuesta_mac_invalida()
         except PortalDispositivoNoExiste as e:
             return Response({'detail': str(e)}, status=status.HTTP_404_NOT_FOUND)
         except PortalError as e:
@@ -200,6 +217,8 @@ class TelevisorViewSet(viewsets.ModelViewSet):
         tv = self.get_object()
         try:
             grupos = PortalClient().get_pin_codes(tv.eui64_portal)
+        except ValueError:
+            return self._respuesta_mac_invalida()
         except PortalDispositivoNoExiste as e:
             return Response({'detail': str(e)}, status=status.HTTP_404_NOT_FOUND)
         except PortalError as e:
@@ -223,6 +242,8 @@ class TelevisorViewSet(viewsets.ModelViewSet):
         client = PortalClient()
         try:
             grupos = client.get_pin_codes(tv.eui64_portal)
+        except ValueError:
+            return self._respuesta_mac_invalida()
         except PortalDispositivoNoExiste as e:
             return Response({'detail': str(e)}, status=status.HTTP_404_NOT_FOUND)
         except PortalError as e:

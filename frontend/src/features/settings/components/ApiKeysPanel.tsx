@@ -2,12 +2,16 @@ import { useEffect, useState } from 'react'
 import {
   CircleAlert,
   Copy,
+  FileText,
   KeyRound,
   Loader2,
   Plus,
   ShieldAlert,
   Trash2,
 } from 'lucide-react'
+// Guía de integración: se importa como asset para que Vite genere la URL con
+// hash y respete el `base` de despliegue (así la descarga no falla en la web).
+import guiaIntegracionUrl from '@/assets/Guia_API_Integracion_Locking_System.docx'
 import { type ApiKey, type ApiKeyCreada } from '@/features/settings/api/apiKeys.api'
 import {
   useApiKeys,
@@ -373,10 +377,24 @@ export function ApiKeysPanel() {
             muestra una sola vez, al crearla.
           </CardDescription>
         </div>
-        <Button onClick={() => setCrearAbierto(true)} className="shrink-0">
-          <Plus />
-          Nueva
-        </Button>
+        <div className="flex shrink-0 gap-2">
+          <Button
+            variant="outline"
+            render={
+              <a
+                href={guiaIntegracionUrl}
+                download="Guia_API_Integracion_Locking_System.docx"
+              />
+            }
+          >
+            <FileText />
+            Guía de integración
+          </Button>
+          <Button onClick={() => setCrearAbierto(true)}>
+            <Plus />
+            Nueva
+          </Button>
+        </div>
       </CardHeader>
 
       <CardContent>

@@ -155,9 +155,12 @@ def _ejecutar_validacion(job_id: int):
         connections.close_all()
 
 
-def lanzar_validacion_masiva() -> BulkSyncJob | None:
-    """Crea un BulkSyncJob de validación para TODOS los TV y lanza el hilo."""
-    televisores = list(Televisor.objects.all())
+def lanzar_validacion_masiva(televisores=None) -> BulkSyncJob | None:
+    """Crea un BulkSyncJob de validación y lanza el hilo.
+
+    Sin `televisores`, valida TODOS (uso del panel). La API de integración puede
+    pasar un subconjunto ya resuelto (validación por seriales)."""
+    televisores = list(Televisor.objects.all()) if televisores is None else list(televisores)
     if not televisores:
         return None
     job = BulkSyncJob.objects.create(

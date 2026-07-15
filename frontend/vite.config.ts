@@ -6,6 +6,8 @@ import tailwindcss from '@tailwindcss/vite'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // Trata los .docx como assets estáticos (import → URL con hash), no como JS.
+  assetsInclude: ['**/*.docx'],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
