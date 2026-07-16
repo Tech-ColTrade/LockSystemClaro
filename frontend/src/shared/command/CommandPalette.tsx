@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router-dom'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import {
   CornerDownLeft,
+  FileSpreadsheet,
   KeyRound,
   LayoutDashboard,
   Loader2,
@@ -129,6 +130,14 @@ export function CommandPalette({
         keywords: 'pin passcode',
         show: true,
         run: () => go('/pincodes'),
+      },
+      {
+        id: 'nav-reportes',
+        label: 'Reportes',
+        icon: FileSpreadsheet,
+        keywords: 'constructor reportes exportar excel consultas',
+        show: true,
+        run: () => go('/reportes'),
       },
       {
         id: 'nav-usuarios',

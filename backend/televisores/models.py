@@ -236,6 +236,39 @@ class PinCodeUsado(models.Model):
         return f'{self.mac_address} · {self.passcode} → {self.pin_code}'
 
 
+class ReporteGuardado(models.Model):
+    """Configuración de un reporte guardada por un usuario (privada).
+
+    La `definicion` guarda la elección del usuario en el Constructor de reportes
+    (origen, modo, campos/dimensión y filtros). Al abrir un guardado, el frontend
+    reconstruye el reporte con ese JSON. Cada usuario solo ve los suyos.
+    """
+
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name='reportes_guardados',
+        on_delete=models.CASCADE,
+    )
+    nombre = models.CharField('Nombre', max_length=120)
+    definicion = models.JSONField(default=dict)
+    creado = models.DateTimeField(auto_now_add=True)
+    actualizado = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'reporte guardado'
+        verbose_name_plural = 'reportes guardados'
+        ordering = ['nombre']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['usuario', 'nombre'],
+                name='reporte_guardado_unico_por_usuario',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.nombre} (usuario {self.usuario_id})'
+
+
 class BulkSyncItem(models.Model):
     """Resultado de sincronizar un televisor dentro de un BulkSyncJob."""
 

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { X } from 'lucide-react'
 import {
   Bar,
@@ -357,6 +358,10 @@ export function DashboardPage() {
               Actualizado {horaTxt}
             </span>
           )}
+          <Button variant="outline" size="sm" render={<Link to="/reportes" />}>
+            <I.Excel />
+            Constructor de reportes
+          </Button>
           <Button
             type="button"
             variant="outline"
