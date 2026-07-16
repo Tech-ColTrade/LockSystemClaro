@@ -1,30 +1,58 @@
 // Constructor de reportes: el usuario elige un ORIGEN y, o bien lista sus
-// columnas (modo lista), o cuenta registros por una dimensión (modo agrupado).
-// Filtra, previsualiza exactamente lo que va a exportar y descarga el Excel.
+// columnas (modo lista), o cuenta registros por una dimensión (modo agrupado,
+// con % del total). Filtra, ordena por columna, previsualiza exactamente lo
+// que va a exportar y descarga el Excel.
 //
-// Además puede GUARDAR la configuración (privada por usuario) para reutilizarla:
-// tras exportar, si es nueva, se ofrece guardarla con un nombre. El menú
-// "Guardados" permite volver a cargar cualquiera y exportarla.
+// Guardados: cada usuario guarda sus configuraciones (privadas) y puede
+// renombrarlas o sobrescribirlas; un administrador puede compartir una como
+// plantilla para todos. Tras exportar una config nueva, se ofrece guardarla.
 //
 // Layout: barra de configuración colapsable (secciones y colapso maestro)
 // arriba + tabla a todo el ancho abajo. Es solo lectura; la seguridad (lista
-// blanca de campos/dimensiones, del usuario solo el nombre) la impone el backend.
+// blanca de campos/dimensiones/orden, del usuario solo el nombre) la impone el
+// backend.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bookmark,
+  ChartBar,
+  ChartColumn,
+  ChartLine,
+  ChartPie,
   ChevronDown,
+  ChevronsUpDown,
+  ChevronUp,
   CircleAlert,
   Database,
+  Download,
   FileSpreadsheet,
+  FileText,
   ListTree,
   Loader2,
+  MoreHorizontal,
   Rows3,
   Save,
   TableProperties,
-  Trash2,
+  Users,
 } from 'lucide-react'
 import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
+import { downloadChartPng } from '@/features/dashboard/chartExport'
+import { useChartColors, type ChartColors } from '@/features/dashboard/chartTheme'
+import {
+  useActualizarGuardado,
   useCrearGuardado,
   useEliminarGuardado,
   useReportePreview,
@@ -33,12 +61,14 @@ import {
 } from '@/features/reportes/api/reportes.queries'
 import {
   reportesApi,
+  type CampoTipo,
   type OrigenMeta,
   type ReporteDef,
   type ReporteFiltros,
   type ReporteGuardado,
   type ReporteModo,
 } from '@/features/reportes/api/reportes.api'
+import { usePermissions } from '@/features/auth/usePermissions'
 import { ApiError } from '@/lib/http/errors'
 import { RangoFechas } from '@/shared/components/RangoFechas'
 import { Paginacion } from '@/shared/components/Paginacion'
@@ -53,6 +83,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -82,8 +118,11 @@ const INHAB_LABELS: Record<string, string> = {
 
 const FILTROS_VACIOS: ReporteFiltros = { desde: '', hasta: '', inhabilitado: '', q: '' }
 
-function fmtCelda(v: string | number): string {
-  return typeof v === 'number' ? v.toLocaleString('es-CO') : v
+function fmtCelda(v: string | number, tipo?: CampoTipo): string {
+  if (typeof v !== 'number') return v
+  if (tipo === 'porcentaje')
+    return `${v.toLocaleString('es-CO', { maximumFractionDigits: 1 })} %`
+  return v.toLocaleString('es-CO')
 }
 
 /** Clave canónica de una definición: identifica si dos configuraciones son la
@@ -95,6 +134,7 @@ function defKey(d: ReporteDef): string {
     modo: d.modo,
     campos: d.modo === 'lista' ? d.campos : [],
     dimension: d.modo === 'agrupado' ? d.dimension : '',
+    orden: d.orden || '',
     filtros: {
       desde: f.desde || '',
       hasta: f.hasta || '',
@@ -112,25 +152,29 @@ function resumenDef(d: ReporteDef, origenes: OrigenMeta[]): string {
 function apiErrorMessage(err: unknown, fallback: string): string {
   if (err instanceof ApiError && err.data && typeof err.data === 'object') {
     const data = err.data as Record<string, unknown>
-    const first = data.detail ?? data.nombre ?? Object.values(data)[0]
+    const first =
+      data.detail ?? data.nombre ?? data.compartido ?? Object.values(data)[0]
     if (first) return Array.isArray(first) ? String(first[0]) : String(first)
   }
   return (err as Error)?.message ?? fallback
 }
 
 export function ReportesPage() {
+  const { isAdmin } = usePermissions()
   const metaQuery = useReportesMeta()
   const origenes = useMemo(() => metaQuery.data?.origenes ?? [], [metaQuery.data])
 
   const guardadosQuery = useReportesGuardados()
   const guardados = useMemo(() => guardadosQuery.data ?? [], [guardadosQuery.data])
   const crearMut = useCrearGuardado()
+  const actualizarMut = useActualizarGuardado()
   const eliminarMut = useEliminarGuardado()
 
   const [origenKey, setOrigenKey] = useState('')
   const [modo, setModo] = useState<ReporteModo>('lista')
   const [selected, setSelected] = useState<string[]>([])
   const [dimension, setDimension] = useState('')
+  const [orden, setOrden] = useState('')
   const [filtros, setFiltros] = useState<ReporteFiltros>(FILTROS_VACIOS)
   const [filtrosDeb, setFiltrosDeb] = useState<ReporteFiltros>(FILTROS_VACIOS)
   const [page, setPage] = useState(1)
@@ -138,12 +182,27 @@ export function ReportesPage() {
   const [exporting, setExporting] = useState(false)
   const [configAbierta, setConfigAbierta] = useState(true)
 
-  // Guardar / cargar
+  // Gráfica del modo agrupado.
+  const [tipoGrafica, setTipoGrafica] = useState<
+    'barras' | 'columnas' | 'dona' | 'linea'
+  >('barras')
+  const chartRef = useRef<HTMLDivElement>(null)
+  const chartColors = useChartColors()
+
+  // Guardados: menú + diálogos (guardar / renombrar / sobrescribir).
   const [guardadosOpen, setGuardadosOpen] = useState(false)
+  const [guardadosError, setGuardadosError] = useState('')
+  const [expandedId, setExpandedId] = useState<number | null>(null)
   const [saveOpen, setSaveOpen] = useState(false)
   const [saveName, setSaveName] = useState('')
   const [saveError, setSaveError] = useState('')
+  const [saveCompartir, setSaveCompartir] = useState(false)
   const [dismissed, setDismissed] = useState<Set<string>>(new Set())
+  const [renameTarget, setRenameTarget] = useState<ReporteGuardado | null>(null)
+  const [renameName, setRenameName] = useState('')
+  const [renameError, setRenameError] = useState('')
+  const [overwriteTarget, setOverwriteTarget] = useState<ReporteGuardado | null>(null)
+  const [overwriteError, setOverwriteError] = useState('')
 
   // Selección inicial: primer origen con todas sus columnas.
   useEffect(() => {
@@ -173,6 +232,7 @@ export function ReportesPage() {
     setSelected(o.campos.map((c) => c.key))
     setDimension(o.dimensiones[0]?.key ?? '')
     setFiltros(FILTROS_VACIOS)
+    setOrden('')
     setPage(1)
   }
 
@@ -183,9 +243,11 @@ export function ReportesPage() {
     setModo(d.modo === 'agrupado' ? 'agrupado' : 'lista')
     setSelected(Array.isArray(d.campos) ? d.campos : [])
     setDimension(d.dimension ?? '')
+    setOrden(d.orden ?? '')
     setFiltros({ ...FILTROS_VACIOS, ...(d.filtros ?? {}) })
     setPage(1)
     setGuardadosOpen(false)
+    setExpandedId(null)
   }
 
   // Campos elegidos, en el orden del origen (el mismo del Excel).
@@ -207,8 +269,9 @@ export function ReportesPage() {
       campos: camposOrdenados,
       dimension,
       filtros: filtrosDeb,
+      orden,
     }),
-    [origenKey, modo, camposOrdenados, dimension, filtrosDeb],
+    [origenKey, modo, camposOrdenados, dimension, filtrosDeb, orden],
   )
 
   const preview = useReportePreview(def, page, Boolean(origenKey) && listo)
@@ -219,6 +282,11 @@ export function ReportesPage() {
     [guardados],
   )
   const yaGuardado = savedKeys.has(defKey(def))
+  const propios = useMemo(() => guardados.filter((g) => g.es_propio), [guardados])
+  const compartidosAjenos = useMemo(
+    () => guardados.filter((g) => !g.es_propio),
+    [guardados],
+  )
 
   const previewError = preview.error
     ? preview.error instanceof ApiError
@@ -226,35 +294,74 @@ export function ReportesPage() {
       : 'No se pudo generar la previsualización.'
     : ''
 
-  const toggleCampo = (k: string) =>
-    setSelected((s) => (s.includes(k) ? s.filter((x) => x !== k) : [...s, k]))
+  const toggleCampo = (k: string) => {
+    const removiendo = selected.includes(k)
+    // Si se quita la columna por la que se ordena, se vuelve al orden default.
+    if (removiendo && orden.replace(/^-/, '') === k) setOrden('')
+    setSelected((s) => (removiendo ? s.filter((x) => x !== k) : [...s, k]))
+  }
 
   const setFiltro = (patch: Partial<ReporteFiltros>) =>
     setFiltros((f) => ({ ...f, ...patch }))
 
   const cambiarModo = (m: ReporteModo) => {
     setModo(m)
+    setOrden('') // las claves de orden difieren entre modos
     setPage(1)
   }
 
-  async function exportar() {
+  // Clic en un encabezado: asc -> desc -> orden por defecto.
+  function ciclarOrden(key: string) {
+    setOrden((o) => (o === key ? `-${key}` : o === `-${key}` ? '' : key))
+    setPage(1)
+  }
+
+  async function exportar(formato: 'xlsx' | 'csv') {
     setExportError('')
     setExporting(true)
     try {
-      await reportesApi.exportar(def)
+      await reportesApi.exportar(def, formato)
       // Tras exportar, si la config es nueva (ni guardada ni descartada), se
       // ofrece guardarla.
       const key = defKey(def)
       if (listo && !savedKeys.has(key) && !dismissed.has(key)) {
-        setSaveName('')
-        setSaveError('')
-        setSaveOpen(true)
+        abrirSave()
       }
     } catch (e) {
-      setExportError(apiErrorMessage(e, 'No se pudo generar el Excel.'))
+      setExportError(apiErrorMessage(e, 'No se pudo generar el archivo.'))
     } finally {
       setExporting(false)
     }
+  }
+
+  // Datos de la gráfica: los grupos visibles (con el orden por defecto, la
+  // página 1 son los grupos más grandes -> un "Top 10" natural).
+  const chartData = useMemo(() => {
+    if (!esAgrupado || !data) return []
+    return data.rows.map((row) => ({
+      name: String(row[0]),
+      value: typeof row[1] === 'number' ? row[1] : 0,
+      pct: typeof row[2] === 'number' ? row[2] : 0,
+    }))
+  }, [esAgrupado, data])
+
+  async function exportarPng() {
+    try {
+      await downloadChartPng(
+        chartRef.current,
+        `reporte_${origenKey}_agrupado.png`,
+        chartColors.surface,
+      )
+    } catch {
+      /* silencioso: no bloquea la UI */
+    }
+  }
+
+  function abrirSave() {
+    setSaveName('')
+    setSaveError('')
+    setSaveCompartir(false)
+    setSaveOpen(true)
   }
 
   // Cerrar el diálogo de guardar sin guardar = descartar esta config (no se
@@ -272,10 +379,68 @@ export function ReportesPage() {
     }
     setSaveError('')
     try {
-      await crearMut.mutateAsync({ nombre, definicion: def })
+      await crearMut.mutateAsync({ nombre, definicion: def, compartido: saveCompartir })
       setSaveOpen(false)
     } catch (e) {
       setSaveError(apiErrorMessage(e, 'No se pudo guardar el reporte.'))
+    }
+  }
+
+  function abrirRename(g: ReporteGuardado) {
+    setRenameTarget(g)
+    setRenameName(g.nombre)
+    setRenameError('')
+  }
+
+  async function renombrar() {
+    if (!renameTarget) return
+    const nombre = renameName.trim()
+    if (!nombre) {
+      setRenameError('Ponle un nombre.')
+      return
+    }
+    setRenameError('')
+    try {
+      await actualizarMut.mutateAsync({ id: renameTarget.id, patch: { nombre } })
+      setRenameTarget(null)
+    } catch (e) {
+      setRenameError(apiErrorMessage(e, 'No se pudo renombrar.'))
+    }
+  }
+
+  async function sobrescribir() {
+    if (!overwriteTarget) return
+    setOverwriteError('')
+    try {
+      await actualizarMut.mutateAsync({
+        id: overwriteTarget.id,
+        patch: { definicion: def },
+      })
+      setOverwriteTarget(null)
+    } catch (e) {
+      setOverwriteError(apiErrorMessage(e, 'No se pudo sobrescribir.'))
+    }
+  }
+
+  async function toggleCompartir(g: ReporteGuardado) {
+    setGuardadosError('')
+    try {
+      await actualizarMut.mutateAsync({
+        id: g.id,
+        patch: { compartido: !g.compartido },
+      })
+    } catch (e) {
+      setGuardadosError(apiErrorMessage(e, 'No se pudo actualizar.'))
+    }
+  }
+
+  async function eliminarGuardado(g: ReporteGuardado) {
+    setGuardadosError('')
+    try {
+      await eliminarMut.mutateAsync(g.id)
+      setExpandedId(null)
+    } catch (e) {
+      setGuardadosError(apiErrorMessage(e, 'No se pudo eliminar.'))
     }
   }
 
@@ -560,7 +725,13 @@ export function ReportesPage() {
 
               <div className="flex shrink-0 items-center gap-2">
                 {/* Reportes guardados */}
-                <Popover open={guardadosOpen} onOpenChange={setGuardadosOpen}>
+                <Popover
+                  open={guardadosOpen}
+                  onOpenChange={(v) => {
+                    setGuardadosOpen(v)
+                    if (!v) setExpandedId(null)
+                  }}
+                >
                   <PopoverTrigger render={<Button variant="outline" />}>
                     <Bookmark aria-hidden="true" />
                     Guardados
@@ -570,7 +741,12 @@ export function ReportesPage() {
                       </span>
                     )}
                   </PopoverTrigger>
-                  <PopoverContent align="end" className="w-72 p-1.5">
+                  <PopoverContent align="end" className="w-80 p-1.5">
+                    {guardadosError && (
+                      <p className="px-1.5 py-1 text-xs text-destructive">
+                        {guardadosError}
+                      </p>
+                    )}
                     <div className="px-1.5 py-1 text-xs font-medium text-muted-foreground">
                       Tus reportes guardados
                     </div>
@@ -578,36 +754,103 @@ export function ReportesPage() {
                       <div className="px-1.5 py-2">
                         <Skeleton className="h-4 w-full" />
                       </div>
-                    ) : guardados.length === 0 ? (
+                    ) : propios.length === 0 ? (
                       <p className="px-1.5 py-2 text-xs text-muted-foreground">
                         Aún no tienes. Exporta un reporte y guárdalo para reutilizarlo.
                       </p>
                     ) : (
-                      <ul className="max-h-64 overflow-y-auto">
-                        {guardados.map((g) => (
-                          <li key={g.id} className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => cargarGuardado(g)}
-                              className="min-w-0 flex-1 rounded-md px-1.5 py-1.5 text-left outline-none hover:bg-muted focus-visible:bg-muted"
-                            >
-                              <span className="block truncate text-sm">{g.nombre}</span>
-                              <span className="block truncate text-xs text-muted-foreground">
-                                {resumenDef(g.definicion, origenes)}
-                              </span>
-                            </button>
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              aria-label={`Eliminar ${g.nombre}`}
-                              onClick={() => eliminarMut.mutate(g.id)}
-                            >
-                              <Trash2 className="text-destructive" aria-hidden="true" />
-                            </Button>
+                      <ul className="max-h-56 overflow-y-auto">
+                        {propios.map((g) => (
+                          <li key={g.id}>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => cargarGuardado(g)}
+                                className="min-w-0 flex-1 rounded-md px-1.5 py-1.5 text-left outline-none hover:bg-muted focus-visible:bg-muted"
+                              >
+                                <span className="flex items-center gap-1.5 text-sm">
+                                  <span className="truncate">{g.nombre}</span>
+                                  {g.compartido && (
+                                    <Users
+                                      className="size-3 shrink-0 text-muted-foreground"
+                                      aria-label="Compartida con todos"
+                                    />
+                                  )}
+                                </span>
+                                <span className="block truncate text-xs text-muted-foreground">
+                                  {resumenDef(g.definicion, origenes)}
+                                </span>
+                              </button>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label={`Acciones de ${g.nombre}`}
+                                aria-expanded={expandedId === g.id}
+                                onClick={() =>
+                                  setExpandedId((id) => (id === g.id ? null : g.id))
+                                }
+                              >
+                                <MoreHorizontal aria-hidden="true" />
+                              </Button>
+                            </div>
+                            {expandedId === g.id && (
+                              <div className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-muted/50 px-2 py-1.5 text-xs">
+                                <AccionMenu
+                                  disabled={!listo}
+                                  onClick={() => {
+                                    setOverwriteError('')
+                                    setOverwriteTarget(g)
+                                  }}
+                                >
+                                  Sobrescribir
+                                </AccionMenu>
+                                <AccionMenu onClick={() => abrirRename(g)}>
+                                  Renombrar
+                                </AccionMenu>
+                                {isAdmin && (
+                                  <AccionMenu onClick={() => toggleCompartir(g)}>
+                                    {g.compartido
+                                      ? 'Dejar de compartir'
+                                      : 'Compartir con todos'}
+                                  </AccionMenu>
+                                )}
+                                <AccionMenu
+                                  destructive
+                                  onClick={() => eliminarGuardado(g)}
+                                >
+                                  Eliminar
+                                </AccionMenu>
+                              </div>
+                            )}
                           </li>
                         ))}
                       </ul>
                     )}
+
+                    {compartidosAjenos.length > 0 && (
+                      <>
+                        <div className="mt-1 border-t px-1.5 pt-2 pb-1 text-xs font-medium text-muted-foreground">
+                          Plantillas compartidas
+                        </div>
+                        <ul className="max-h-40 overflow-y-auto">
+                          {compartidosAjenos.map((g) => (
+                            <li key={g.id}>
+                              <button
+                                type="button"
+                                onClick={() => cargarGuardado(g)}
+                                className="w-full min-w-0 rounded-md px-1.5 py-1.5 text-left outline-none hover:bg-muted focus-visible:bg-muted"
+                              >
+                                <span className="block truncate text-sm">{g.nombre}</span>
+                                <span className="block truncate text-xs text-muted-foreground">
+                                  {resumenDef(g.definicion, origenes)} · de {g.creado_por}
+                                </span>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+
                     <div className="mt-1 border-t pt-1">
                       <Button
                         variant="ghost"
@@ -616,9 +859,7 @@ export function ReportesPage() {
                         disabled={!listo || yaGuardado}
                         onClick={() => {
                           setGuardadosOpen(false)
-                          setSaveName('')
-                          setSaveError('')
-                          setSaveOpen(true)
+                          abrirSave()
                         }}
                       >
                         <Save aria-hidden="true" />
@@ -628,17 +869,33 @@ export function ReportesPage() {
                   </PopoverContent>
                 </Popover>
 
-                <Button
-                  onClick={exportar}
-                  disabled={!listo || exporting || (data?.count ?? 0) === 0}
-                >
-                  {exporting ? (
-                    <Loader2 className="animate-spin" aria-hidden="true" />
-                  ) : (
-                    <FileSpreadsheet aria-hidden="true" />
-                  )}
-                  Exportar Excel
-                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        disabled={!listo || exporting || (data?.count ?? 0) === 0}
+                      />
+                    }
+                  >
+                    {exporting ? (
+                      <Loader2 className="animate-spin" aria-hidden="true" />
+                    ) : (
+                      <Download aria-hidden="true" />
+                    )}
+                    Exportar
+                    <ChevronDown className="size-3.5" aria-hidden="true" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => exportar('xlsx')}>
+                      <FileSpreadsheet aria-hidden="true" />
+                      Excel (.xlsx)
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => exportar('csv')}>
+                      <FileText aria-hidden="true" />
+                      CSV (.csv)
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </CardHeader>
 
@@ -667,7 +924,7 @@ export function ReportesPage() {
                   }
                 />
               ) : preview.isLoading ? (
-                <TablaSkeleton columnas={esAgrupado ? 2 : camposOrdenados.length} />
+                <TablaSkeleton columnas={esAgrupado ? 3 : camposOrdenados.length} />
               ) : data && data.count === 0 ? (
                 <EstadoVacio
                   icon={<Database className="size-6 opacity-50" aria-hidden="true" />}
@@ -676,38 +933,134 @@ export function ReportesPage() {
                 />
               ) : data ? (
                 <>
+                  {esAgrupado && chartData.length > 0 && (
+                    <div className="mb-4 rounded-lg border p-4">
+                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs text-muted-foreground">
+                          Gráfica de los grupos visibles (página actual).
+                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <div
+                            className="flex flex-wrap gap-1"
+                            role="group"
+                            aria-label="Tipo de gráfica"
+                          >
+                            <GraficaBtn
+                              activo={tipoGrafica === 'barras'}
+                              onClick={() => setTipoGrafica('barras')}
+                              icon={<ChartBar className="size-3.5" aria-hidden="true" />}
+                              label="Barras"
+                            />
+                            <GraficaBtn
+                              activo={tipoGrafica === 'columnas'}
+                              onClick={() => setTipoGrafica('columnas')}
+                              icon={<ChartColumn className="size-3.5" aria-hidden="true" />}
+                              label="Columnas"
+                            />
+                            <GraficaBtn
+                              activo={tipoGrafica === 'dona'}
+                              onClick={() => setTipoGrafica('dona')}
+                              icon={<ChartPie className="size-3.5" aria-hidden="true" />}
+                              label="Dona"
+                            />
+                            <GraficaBtn
+                              activo={tipoGrafica === 'linea'}
+                              onClick={() => setTipoGrafica('linea')}
+                              icon={<ChartLine className="size-3.5" aria-hidden="true" />}
+                              label="Línea"
+                            />
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={exportarPng}
+                            title="Descargar imagen PNG"
+                          >
+                            <Download aria-hidden="true" />
+                            PNG
+                          </Button>
+                        </div>
+                      </div>
+                      <div ref={chartRef}>
+                        {tipoGrafica === 'barras' ? (
+                          <GraficaBarras data={chartData} colors={chartColors} />
+                        ) : tipoGrafica === 'columnas' ? (
+                          <GraficaColumnas data={chartData} colors={chartColors} />
+                        ) : tipoGrafica === 'linea' ? (
+                          <GraficaLinea data={chartData} colors={chartColors} />
+                        ) : (
+                          <GraficaDona data={chartData} colors={chartColors} />
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="overflow-x-auto rounded-lg border">
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          {data.campos.map((c) => (
-                            <TableHead
-                              key={c.key}
-                              className={cn(
-                                'whitespace-nowrap',
-                                c.tipo === 'numero' && 'text-right',
-                              )}
-                            >
-                              {c.label}
-                            </TableHead>
-                          ))}
+                          {data.campos.map((c) => {
+                            const esNum = c.tipo === 'numero' || c.tipo === 'porcentaje'
+                            const dir =
+                              orden === c.key
+                                ? 'ascending'
+                                : orden === `-${c.key}`
+                                  ? 'descending'
+                                  : undefined
+                            return (
+                              <TableHead
+                                key={c.key}
+                                aria-sort={dir}
+                                className={cn('whitespace-nowrap', esNum && 'text-right')}
+                              >
+                                {c.sortable ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => ciclarOrden(c.key)}
+                                    className={cn(
+                                      'inline-flex items-center gap-1 rounded outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring',
+                                      dir && 'text-foreground',
+                                    )}
+                                  >
+                                    {c.label}
+                                    {dir === 'ascending' ? (
+                                      <ChevronUp className="size-3.5" aria-hidden="true" />
+                                    ) : dir === 'descending' ? (
+                                      <ChevronDown className="size-3.5" aria-hidden="true" />
+                                    ) : (
+                                      <ChevronsUpDown
+                                        className="size-3.5 opacity-40"
+                                        aria-hidden="true"
+                                      />
+                                    )}
+                                  </button>
+                                ) : (
+                                  c.label
+                                )}
+                              </TableHead>
+                            )
+                          })}
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {data.rows.map((row, i) => (
                           <TableRow key={i}>
-                            {row.map((v, j) => (
-                              <TableCell
-                                key={j}
-                                className={cn(
-                                  'whitespace-nowrap',
-                                  typeof v === 'number' &&
-                                    'text-right font-medium tabular-nums',
-                                )}
-                              >
-                                {fmtCelda(v)}
-                              </TableCell>
-                            ))}
+                            {row.map((v, j) => {
+                              const tipo = data.campos[j]?.tipo
+                              const esNum = tipo === 'numero' || tipo === 'porcentaje'
+                              return (
+                                <TableCell
+                                  key={j}
+                                  className={cn(
+                                    'whitespace-nowrap',
+                                    esNum && 'text-right font-medium tabular-nums',
+                                  )}
+                                >
+                                  {fmtCelda(v, tipo)}
+                                </TableCell>
+                              )
+                            })}
                           </TableRow>
                         ))}
                       </TableBody>
@@ -727,8 +1080,8 @@ export function ReportesPage() {
           <DialogHeader>
             <DialogTitle>¿Guardar esta configuración?</DialogTitle>
             <DialogDescription>
-              Guárdala con un nombre para reutilizarla sin volver a armarla. Solo tú la
-              verás.
+              Guárdala con un nombre para reutilizarla sin volver a armarla.
+              {!saveCompartir && ' Solo tú la verás.'}
             </DialogDescription>
           </DialogHeader>
 
@@ -756,18 +1109,386 @@ export function ReportesPage() {
             />
           </div>
 
+          {isAdmin && (
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="size-4"
+                style={{ accentColor: 'var(--primary)' }}
+                checked={saveCompartir}
+                onChange={(e) => setSaveCompartir(e.target.checked)}
+              />
+              Compartir como plantilla para todos
+            </label>
+          )}
+
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => cerrarSave(false)}>
               Ahora no
             </Button>
             <Button type="button" onClick={guardar} disabled={crearMut.isPending}>
-              {crearMut.isPending && <Loader2 className="animate-spin" aria-hidden="true" />}
+              {crearMut.isPending && (
+                <Loader2 className="animate-spin" aria-hidden="true" />
+              )}
               Guardar
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Diálogo: renombrar un guardado */}
+      <Dialog open={renameTarget !== null} onOpenChange={(v) => !v && setRenameTarget(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Renombrar reporte</DialogTitle>
+            <DialogDescription>Nuevo nombre para «{renameTarget?.nombre}».</DialogDescription>
+          </DialogHeader>
+
+          {renameError && (
+            <Alert variant="destructive">
+              <CircleAlert />
+              <AlertDescription>{renameError}</AlertDescription>
+            </Alert>
+          )}
+
+          <div className="grid gap-2">
+            <Label htmlFor="rename-nombre">Nombre</Label>
+            <Input
+              id="rename-nombre"
+              value={renameName}
+              onChange={(e) => setRenameName(e.target.value)}
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  renombrar()
+                }
+              }}
+            />
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setRenameTarget(null)}>
+              Cancelar
+            </Button>
+            <Button type="button" onClick={renombrar} disabled={actualizarMut.isPending}>
+              {actualizarMut.isPending && (
+                <Loader2 className="animate-spin" aria-hidden="true" />
+              )}
+              Renombrar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo: sobrescribir un guardado con la configuración actual */}
+      <Dialog
+        open={overwriteTarget !== null}
+        onOpenChange={(v) => !v && setOverwriteTarget(null)}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Sobrescribir reporte</DialogTitle>
+            <DialogDescription>
+              «{overwriteTarget?.nombre}» se reemplazará con la configuración actual del
+              constructor. Esta acción no se puede deshacer.
+            </DialogDescription>
+          </DialogHeader>
+
+          {overwriteError && (
+            <Alert variant="destructive">
+              <CircleAlert />
+              <AlertDescription>{overwriteError}</AlertDescription>
+            </Alert>
+          )}
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setOverwriteTarget(null)}
+            >
+              Cancelar
+            </Button>
+            <Button type="button" onClick={sobrescribir} disabled={actualizarMut.isPending}>
+              {actualizarMut.isPending && (
+                <Loader2 className="animate-spin" aria-hidden="true" />
+              )}
+              Sobrescribir
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Gráfica del modo agrupado (los grupos visibles de la página actual)
+// ---------------------------------------------------------------------------
+interface GrupoChart {
+  name: string
+  value: number
+  pct: number
+}
+
+function paletaChart(c: ChartColors): string[] {
+  return [c.blue, c.orange, c.good, c.warning, c.critical, c.neutral]
+}
+
+function tooltipChart(c: ChartColors) {
+  return {
+    contentStyle: {
+      background: c.surface,
+      border: `1px solid ${c.grid}`,
+      borderRadius: 12,
+      fontSize: 12,
+      color: c.text,
+      boxShadow: '0 8px 24px rgba(16,24,40,0.14)',
+    },
+    labelStyle: { color: c.text, fontWeight: 600 },
+    itemStyle: { color: c.text },
+  }
+}
+
+function GraficaBtn({
+  activo,
+  onClick,
+  icon,
+  label,
+}: {
+  activo: boolean
+  onClick: () => void
+  icon: React.ReactNode
+  label: string
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={activo}
+      onClick={onClick}
+      className={cn(
+        'flex h-7 items-center gap-1 rounded-lg border px-2 text-xs transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        activo
+          ? 'border-primary bg-primary/10 text-primary'
+          : 'border-border text-muted-foreground hover:bg-muted',
+      )}
+    >
+      {icon}
+      {label}
+    </button>
+  )
+}
+
+/** Barras horizontales: aguantan etiquetas largas (usuarios, seriales). */
+function GraficaBarras({ data, colors }: { data: GrupoChart[]; colors: ChartColors }) {
+  const alto = Math.max(180, data.length * 36 + 30)
+  return (
+    <ResponsiveContainer width="100%" height={alto}>
+      <BarChart
+        data={data}
+        layout="vertical"
+        margin={{ top: 4, right: 24, left: 8, bottom: 4 }}
+      >
+        <CartesianGrid stroke={colors.grid} horizontal={false} />
+        <XAxis
+          type="number"
+          allowDecimals={false}
+          tick={{ fill: colors.muted, fontSize: 11 }}
+          axisLine={{ stroke: colors.axis }}
+          tickLine={{ stroke: colors.axis }}
+        />
+        <YAxis
+          type="category"
+          dataKey="name"
+          width={150}
+          tick={{ fill: colors.muted, fontSize: 11 }}
+          axisLine={{ stroke: colors.axis }}
+          tickLine={{ stroke: colors.axis }}
+        />
+        <Tooltip
+          {...tooltipChart(colors)}
+          cursor={{ fill: colors.grid, opacity: 0.3 }}
+          formatter={(v) => [Number(v ?? 0).toLocaleString('es-CO'), 'Cantidad']}
+        />
+        <Bar dataKey="value" fill={colors.blue} radius={[0, 5, 5, 0]} maxBarSize={22} />
+      </BarChart>
+    </ResponsiveContainer>
+  )
+}
+
+/** Trunca etiquetas largas en ejes de categoría (el tooltip muestra la completa). */
+function truncar(s: string, max = 12): string {
+  return s.length > max ? `${s.slice(0, max)}…` : s
+}
+
+/** Columnas verticales: para grupos con etiquetas cortas (Acción, Estado, meses). */
+function GraficaColumnas({ data, colors }: { data: GrupoChart[]; colors: ChartColors }) {
+  return (
+    <ResponsiveContainer width="100%" height={240}>
+      <BarChart data={data} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+        <CartesianGrid stroke={colors.grid} vertical={false} />
+        <XAxis
+          dataKey="name"
+          interval={0}
+          tickFormatter={(v) => truncar(String(v))}
+          tick={{ fill: colors.muted, fontSize: 11 }}
+          axisLine={{ stroke: colors.axis }}
+          tickLine={{ stroke: colors.axis }}
+        />
+        <YAxis
+          allowDecimals={false}
+          tick={{ fill: colors.muted, fontSize: 11 }}
+          axisLine={{ stroke: colors.axis }}
+          tickLine={{ stroke: colors.axis }}
+        />
+        <Tooltip
+          {...tooltipChart(colors)}
+          cursor={{ fill: colors.grid, opacity: 0.3 }}
+          formatter={(v) => [Number(v ?? 0).toLocaleString('es-CO'), 'Cantidad']}
+        />
+        <Bar dataKey="value" fill={colors.blue} radius={[5, 5, 0, 0]} maxBarSize={48} />
+      </BarChart>
+    </ResponsiveContainer>
+  )
+}
+
+/** Clave de orden cronológico para etiquetas de fecha; alfabético si no lo son.
+ *  Soporta 'dd/mm/yyyy' (dimensión Día) y 'yyyy-mm' (Mes, que ya ordena solo). */
+function claveCronologica(name: string): string {
+  const dia = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(name)
+  if (dia) return `${dia[3]}-${dia[2]}-${dia[1]}`
+  return name
+}
+
+/** Línea/área de tendencia: pensada para las dimensiones de tiempo (Día/Mes).
+ *  Ordena los grupos cronológicamente sin importar cómo esté la tabla. */
+function GraficaLinea({ data, colors }: { data: GrupoChart[]; colors: ChartColors }) {
+  const serie = [...data].sort((a, b) =>
+    claveCronologica(a.name).localeCompare(claveCronologica(b.name)),
+  )
+  return (
+    <ResponsiveContainer width="100%" height={240}>
+      <AreaChart data={serie} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+        <defs>
+          <linearGradient id="reporte-linea" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={colors.blue} stopOpacity={0.35} />
+            <stop offset="100%" stopColor={colors.blue} stopOpacity={0.03} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid stroke={colors.grid} vertical={false} />
+        <XAxis
+          dataKey="name"
+          interval="preserveStartEnd"
+          tickFormatter={(v) => truncar(String(v))}
+          tick={{ fill: colors.muted, fontSize: 11 }}
+          axisLine={{ stroke: colors.axis }}
+          tickLine={{ stroke: colors.axis }}
+        />
+        <YAxis
+          allowDecimals={false}
+          tick={{ fill: colors.muted, fontSize: 11 }}
+          axisLine={{ stroke: colors.axis }}
+          tickLine={{ stroke: colors.axis }}
+        />
+        <Tooltip
+          {...tooltipChart(colors)}
+          formatter={(v) => [Number(v ?? 0).toLocaleString('es-CO'), 'Cantidad']}
+        />
+        <Area
+          type="monotone"
+          dataKey="value"
+          stroke={colors.blue}
+          strokeWidth={2}
+          fill="url(#reporte-linea)"
+          dot={{ r: 3, fill: colors.blue, strokeWidth: 0 }}
+          activeDot={{ r: 4 }}
+        />
+      </AreaChart>
+    </ResponsiveContainer>
+  )
+}
+
+/** Dona con leyenda (nombre · cantidad · %). */
+function GraficaDona({ data, colors }: { data: GrupoChart[]; colors: ChartColors }) {
+  const paleta = paletaChart(colors)
+  return (
+    <div>
+      <ResponsiveContainer width="100%" height={240}>
+        <PieChart>
+          <Pie
+            data={data}
+            dataKey="value"
+            nameKey="name"
+            cx="50%"
+            cy="50%"
+            innerRadius={60}
+            outerRadius={90}
+            paddingAngle={3}
+            cornerRadius={6}
+            startAngle={90}
+            endAngle={-270}
+          >
+            {data.map((d, i) => (
+              <Cell
+                key={d.name}
+                fill={paleta[i % paleta.length]}
+                stroke={colors.surface}
+                strokeWidth={3}
+              />
+            ))}
+          </Pie>
+          <Tooltip
+            {...tooltipChart(colors)}
+            formatter={(v) => [Number(v ?? 0).toLocaleString('es-CO'), 'Cantidad']}
+          />
+        </PieChart>
+      </ResponsiveContainer>
+      <div className="mt-1 flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5">
+        {data.map((d, i) => (
+          <div key={d.name} className="flex items-center gap-1.5 text-xs">
+            <span
+              className="size-2.5 rounded-full"
+              style={{ background: paleta[i % paleta.length] }}
+            />
+            <span className="max-w-40 truncate text-muted-foreground">{d.name}</span>
+            <span className="font-semibold tabular-nums text-foreground">
+              {d.value.toLocaleString('es-CO')}
+            </span>
+            <span className="text-muted-foreground">
+              ({d.pct.toLocaleString('es-CO', { maximumFractionDigits: 1 })}%)
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// Acción de texto dentro del menú de guardados.
+function AccionMenu({
+  children,
+  onClick,
+  disabled,
+  destructive,
+}: {
+  children: React.ReactNode
+  onClick: () => void
+  disabled?: boolean
+  destructive?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        'rounded outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 disabled:no-underline',
+        destructive ? 'text-destructive' : 'text-foreground/80',
+      )}
+    >
+      {children}
+    </button>
   )
 }
 

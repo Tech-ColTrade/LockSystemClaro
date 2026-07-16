@@ -24,7 +24,6 @@ import { PincodesPage } from '@/features/pincodes/pages/PincodesPage'
 import { UsuariosPage } from '@/features/usuarios/pages/UsuariosPage'
 import { UsuarioFormPage } from '@/features/usuarios/pages/UsuarioFormPage'
 import { SettingsPage } from '@/features/settings/pages/SettingsPage'
-import { ReportesPage } from '@/features/reportes/pages/ReportesPage'
 import { DashboardLayout } from '@/shared/layout/DashboardLayout'
 
 export const router = createBrowserRouter([
@@ -79,8 +78,13 @@ export const router = createBrowserRouter([
             handle: { breadcrumb: 'Códigos Pin' },
           },
           {
+            // Carga diferida: recharts (la gráfica del modo agrupado) solo se
+            // descarga al entrar a Reportes, igual que en el dashboard.
             path: '/reportes',
-            element: <ReportesPage />,
+            lazy: async () => ({
+              Component: (await import('@/features/reportes/pages/ReportesPage'))
+                .ReportesPage,
+            }),
             handle: { breadcrumb: 'Reportes' },
           },
           {

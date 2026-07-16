@@ -2,7 +2,6 @@ import type { ComponentType } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
   ChevronsUpDown,
-  FileSpreadsheet,
   KeyRound,
   LayoutDashboard,
   LogOut,
@@ -49,7 +48,6 @@ const navItems: NavItem[] = [
   { to: '/televisores', label: 'Televisores', icon: Monitor },
   { to: '/sincronizaciones', label: 'Sincronizaciones', icon: RefreshCw },
   { to: '/pincodes', label: 'Códigos Pin', icon: KeyRound },
-  { to: '/reportes', label: 'Reportes', icon: FileSpreadsheet },
   { to: '/usuarios', label: 'Usuarios', icon: Users, adminOnly: true },
 ]
 

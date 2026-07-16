@@ -11,9 +11,22 @@ lectura y lo puede usar cualquier usuario autenticado.
 """
 from __future__ import annotations
 
+import csv
+import io
 from typing import Callable
 
-from django.db.models import Q, Value
+from django.db.models import (
+    BooleanField,
+    Case,
+    Count,
+    F,
+    IntegerField,
+    OuterRef,
+    Q,
+    Subquery,
+    Value,
+    When,
+)
 from django.db.models.functions import Coalesce
 from django.http import HttpResponse
 from django.utils import timezone
@@ -25,7 +38,14 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from televisores.models import PinCodeUsado, ReporteGuardado, Televisor
+from televisores.models import (
+    BulkSyncItem,
+    BulkSyncJob,
+    PinCodeUsado,
+    ReporteGuardado,
+    SyncJob,
+    Televisor,
+)
 
 from .exports import _estilar_encabezado, _respuesta_xlsx
 from .filtros import filtrar_por_fecha
@@ -49,21 +69,64 @@ def _dia(dt) -> str:
     return timezone.localtime(dt).strftime('%d/%m/%Y') if dt else '—'
 
 
+def _dias_desde(dt) -> int:
+    """Días transcurridos desde `dt` hasta hoy (antigüedad)."""
+    if not dt:
+        return 0
+    return (timezone.localdate() - timezone.localtime(dt).date()).days
+
+
+def _tv_etiqueta(serial, mac) -> str:
+    """Etiqueta legible de un televisor: su serial, o la MAC si no tiene."""
+    s = (serial or '').strip()
+    if s and s != '—':
+        return s
+    return mac or '—'
+
+
 class Campo:
     """Una columna elegible: su clave, etiqueta, tipo y cómo se renderiza.
 
     `render` recibe la fila cruda (dict de `.values()`) y devuelve el valor ya
     listo para mostrar/exportar. Así el frontend y el Excel comparten formato.
+    `orden` es la columna ORM por la que se puede ordenar (None = no ordenable);
+    `orden_invertido` invierte la dirección (p. ej. Antigüedad asc = fecha desc).
     """
 
-    def __init__(self, key: str, label: str, tipo: str, render: Callable[[dict], object]):
+    def __init__(
+        self,
+        key: str,
+        label: str,
+        tipo: str,
+        render: Callable[[dict], object],
+        orden: str | None = None,
+        orden_invertido: bool = False,
+    ):
         self.key = key
         self.label = label
-        self.tipo = tipo  # 'texto' | 'fecha' | 'booleano' | 'usuario'
+        self.tipo = tipo  # 'texto' | 'fecha' | 'booleano' | 'usuario' | 'numero'
         self.render = render
+        self.orden = orden
+        self.orden_invertido = orden_invertido
 
 
 # --- Origen: Televisores ----------------------------------------------------
+def _conteo_por_tv(qs_relacion):
+    """Subquery con el conteo de filas de una relación para cada televisor.
+
+    Se usa Subquery (y no dos Count sobre relaciones distintas) porque los JOIN
+    múltiples multiplican filas y los conteos saldrían inflados.
+    """
+    sq = (
+        qs_relacion.filter(televisor=OuterRef('pk'))
+        .order_by()
+        .values('televisor')
+        .annotate(n=Count('pk'))
+        .values('n')
+    )
+    return Coalesce(Subquery(sq, output_field=IntegerField()), 0)
+
+
 def _qs_televisores(f: dict):
     qs = Televisor.objects.all()
     q = (f.get('q') or '').strip()
@@ -77,20 +140,53 @@ def _qs_televisores(f: dict):
     if inhab in ('true', 'false'):
         qs = qs.filter(inhabilitado=(inhab == 'true'))
     qs = filtrar_por_fecha(qs, f.get('desde'), f.get('hasta'), campo='created_at')
-    return qs.order_by('-created_at').values(
-        'serial_number', 'mac_address', 'numero_credito',
-        'inhabilitado', 'eui64', 'created_at',
+    return (
+        qs.annotate(
+            # Financiado = tiene número de crédito (mismo criterio del dashboard).
+            financiado_bool=Case(
+                When(numero_credito='', then=Value(False)),
+                default=Value(True),
+                output_field=BooleanField(),
+            ),
+            pines_usados=_conteo_por_tv(PinCodeUsado.objects.all()),
+            n_sync_ind=_conteo_por_tv(SyncJob.objects.all()),
+            n_sync_bulk=_conteo_por_tv(
+                BulkSyncItem.objects.filter(job__modo=BulkSyncJob.SYNC)
+            ),
+        )
+        .annotate(sincronizaciones_n=F('n_sync_ind') + F('n_sync_bulk'))
+        .order_by('-created_at')
+        .values(
+            'serial_number', 'mac_address', 'numero_credito', 'financiado_bool',
+            'inhabilitado', 'eui64', 'created_at', 'sincronizaciones_n',
+            'pines_usados',
+        )
     )
 
 
 CAMPOS_TELEVISORES = [
-    Campo('serial_number', 'Número de serie', 'texto', lambda r: r['serial_number'] or '—'),
-    Campo('mac_address', 'Dirección MAC', 'texto', lambda r: r['mac_address'] or '—'),
-    Campo('numero_credito', 'Número de crédito', 'texto', lambda r: r['numero_credito'] or '—'),
+    Campo('serial_number', 'Número de serie', 'texto',
+          lambda r: r['serial_number'] or '—', orden='serial_number'),
+    Campo('mac_address', 'Dirección MAC', 'texto',
+          lambda r: r['mac_address'] or '—', orden='mac_address'),
+    Campo('numero_credito', 'Número de crédito', 'texto',
+          lambda r: r['numero_credito'] or '—', orden='numero_credito'),
+    Campo('financiado', 'Financiado', 'booleano',
+          lambda r: 'Sí' if r['financiado_bool'] else 'No', orden='financiado_bool'),
     Campo('inhabilitado', 'Estado', 'booleano',
-          lambda r: 'Inhabilitado' if r['inhabilitado'] else 'Habilitado'),
-    Campo('eui64', 'EUI-64', 'texto', lambda r: r['eui64'] or '—'),
-    Campo('created_at', 'Fecha de registro', 'fecha', lambda r: _fecha(r['created_at'])),
+          lambda r: 'Inhabilitado' if r['inhabilitado'] else 'Habilitado',
+          orden='inhabilitado'),
+    Campo('eui64', 'EUI-64', 'texto', lambda r: r['eui64'] or '—', orden='eui64'),
+    Campo('created_at', 'Fecha de registro', 'fecha',
+          lambda r: _fecha(r['created_at']), orden='created_at'),
+    # Antigüedad asc = registrado más recientemente primero -> fecha desc.
+    Campo('antiguedad', 'Antigüedad (días)', 'numero',
+          lambda r: _dias_desde(r['created_at']),
+          orden='created_at', orden_invertido=True),
+    Campo('sincronizaciones', 'Sincronizaciones', 'numero',
+          lambda r: r['sincronizaciones_n'], orden='sincronizaciones_n'),
+    Campo('pines_usados', 'Pines usados', 'numero',
+          lambda r: r['pines_usados'], orden='pines_usados'),
 ]
 
 # Dimensiones agrupables (modo "agrupado": conteo por grupo). Se reutiliza la
@@ -98,7 +194,10 @@ CAMPOS_TELEVISORES = [
 DIMENSIONES_TELEVISORES = [
     Campo('estado', 'Estado', 'booleano',
           lambda r: 'Inhabilitado' if r['inhabilitado'] else 'Habilitado'),
+    Campo('financiado', 'Financiado', 'booleano',
+          lambda r: 'Financiado' if r['financiado_bool'] else 'No financiado'),
     Campo('mes_registro', 'Mes de registro', 'fecha', lambda r: _mes(r['created_at'])),
+    Campo('dia_registro', 'Día de registro', 'fecha', lambda r: _dia(r['created_at'])),
 ]
 
 
@@ -110,20 +209,30 @@ def _qs_sincronizaciones(f: dict):
 
 
 CAMPOS_SINCRONIZACIONES = [
-    Campo('fecha', 'Fecha', 'fecha', lambda r: _fecha(r['fecha'])),
-    Campo('serial_number', 'Número de serie', 'texto', lambda r: r['serial'] or '—'),
-    Campo('mac_address', 'Dirección MAC', 'texto', lambda r: r['mac'] or '—'),
-    Campo('usuario', 'Usuario', 'usuario', lambda r: r['usuario_nombre'] or '—'),
+    Campo('fecha', 'Fecha', 'fecha', lambda r: _fecha(r['fecha']), orden='fecha'),
+    Campo('serial_number', 'Número de serie', 'texto',
+          lambda r: r['serial'] or '—', orden='serial'),
+    Campo('mac_address', 'Dirección MAC', 'texto',
+          lambda r: r['mac'] or '—', orden='mac'),
+    Campo('usuario', 'Usuario', 'usuario',
+          lambda r: r['usuario_nombre'] or '—', orden='usuario_nombre'),
     Campo('accion', 'Acción', 'texto',
-          lambda r: 'Inhabilitar' if r['inhabilitar'] else 'Habilitar'),
+          lambda r: 'Inhabilitar' if r['inhabilitar'] else 'Habilitar',
+          orden='inhabilitar'),
+    # `resultado` no es ordenable: el código de estado significa cosas distintas
+    # según el origen (individual vs masivo) y el orden SQL no coincidiría con
+    # el texto que se muestra.
     Campo('resultado', 'Resultado', 'texto',
           lambda r: _resultado_syncjob(r['estado'])
           if r['tipo'] == 'Individual' else _resultado_item(r['estado'])),
-    Campo('tipo', 'Tipo', 'texto', lambda r: r['tipo']),
+    Campo('tipo', 'Tipo', 'texto', lambda r: r['tipo'], orden='tipo'),
 ]
 
 DIMENSIONES_SINCRONIZACIONES = [
     Campo('usuario', 'Usuario', 'usuario', lambda r: r['usuario_nombre'] or '—'),
+    # Ranking de equipos: cuántas acciones ha recibido cada televisor.
+    Campo('televisor', 'Televisor', 'texto',
+          lambda r: _tv_etiqueta(r['serial'], r['mac'])),
     Campo('accion', 'Acción', 'texto',
           lambda r: 'Inhabilitar' if r['inhabilitar'] else 'Habilitar'),
     Campo('resultado', 'Resultado', 'texto',
@@ -131,6 +240,7 @@ DIMENSIONES_SINCRONIZACIONES = [
           if r['tipo'] == 'Individual' else _resultado_item(r['estado'])),
     Campo('tipo', 'Tipo', 'texto', lambda r: r['tipo']),
     Campo('mes', 'Mes', 'fecha', lambda r: _mes(r['fecha'])),
+    Campo('dia', 'Día', 'fecha', lambda r: _dia(r['fecha'])),
 ]
 
 
@@ -156,16 +266,23 @@ def _qs_pincodes(f: dict):
 
 
 CAMPOS_PINCODES = [
-    Campo('fecha', 'Fecha', 'fecha', lambda r: _fecha(r['creado'])),
-    Campo('serial_number', 'Número de serie', 'texto', lambda r: r['serial'] or '—'),
-    Campo('mac_address', 'Dirección MAC', 'texto', lambda r: r['mac_address'] or '—'),
-    Campo('usuario', 'Usuario', 'usuario', lambda r: r['usuario_nombre'] or '—'),
-    Campo('passcode', 'Código de Acceso', 'texto', lambda r: r['passcode']),
-    Campo('pin_code', 'Código Pin', 'texto', lambda r: r['pin_code']),
+    Campo('fecha', 'Fecha', 'fecha', lambda r: _fecha(r['creado']), orden='creado'),
+    Campo('serial_number', 'Número de serie', 'texto',
+          lambda r: r['serial'] or '—', orden='serial'),
+    Campo('mac_address', 'Dirección MAC', 'texto',
+          lambda r: r['mac_address'] or '—', orden='mac_address'),
+    Campo('usuario', 'Usuario', 'usuario',
+          lambda r: r['usuario_nombre'] or '—', orden='usuario_nombre'),
+    Campo('passcode', 'Código de Acceso', 'texto',
+          lambda r: r['passcode'], orden='passcode'),
+    Campo('pin_code', 'Código Pin', 'texto', lambda r: r['pin_code'], orden='pin_code'),
 ]
 
 DIMENSIONES_PINCODES = [
     Campo('usuario', 'Usuario', 'usuario', lambda r: r['usuario_nombre'] or '—'),
+    # Equipos que más pines consumen.
+    Campo('televisor', 'Televisor', 'texto',
+          lambda r: _tv_etiqueta(r['serial'], r['mac_address'])),
     Campo('mes', 'Mes', 'fecha', lambda r: _mes(r['creado'])),
     Campo('dia', 'Día', 'fecha', lambda r: _dia(r['creado'])),
 ]
@@ -180,6 +297,8 @@ ORIGENES = {
         'dimensiones': DIMENSIONES_TELEVISORES,
         'filtros': {'fecha': True, 'inhabilitado': True, 'busqueda': True},
         'queryset': _qs_televisores,
+        # Desempate al reordenar: sin él, filas "iguales" bailan entre páginas.
+        'desempate': ('-pk',),
     },
     'sincronizaciones': {
         'label': 'Sincronizaciones',
@@ -188,6 +307,8 @@ ORIGENES = {
         'dimensiones': DIMENSIONES_SINCRONIZACIONES,
         'filtros': {'fecha': True, 'inhabilitado': False, 'busqueda': False},
         'queryset': _qs_sincronizaciones,
+        # Es un UNION: solo puede ordenar/desempatar por columnas del values().
+        'desempate': ('tipo', '-id'),
     },
     'pincodes': {
         'label': 'Códigos Pin',
@@ -196,6 +317,7 @@ ORIGENES = {
         'dimensiones': DIMENSIONES_PINCODES,
         'filtros': {'fecha': True, 'inhabilitado': False, 'busqueda': True},
         'queryset': _qs_pincodes,
+        'desempate': ('-pk',),
     },
 }
 
@@ -214,7 +336,8 @@ def metadata() -> dict:
                 'descripcion': o['descripcion'],
                 'filtros': o['filtros'],
                 'campos': [
-                    {'key': c.key, 'label': c.label, 'tipo': c.tipo}
+                    {'key': c.key, 'label': c.label, 'tipo': c.tipo,
+                     'sortable': bool(c.orden)}
                     for c in o['campos']
                 ],
                 'dimensiones': [
@@ -278,7 +401,7 @@ def _agrupar(origen, dimension, filtros) -> list[tuple[str, int]]:
     Se agrupa en Python y no en SQL porque un origen puede ser un UNION (las
     sincronizaciones), sobre el que anotar un Count es engorroso. El volumen es
     de escala administrativa, así que contar sobre las mismas filas del modo
-    lista es simple y correcto. Orden: por cantidad desc, luego etiqueta.
+    lista es simple y correcto. Orden por defecto: cantidad desc, luego etiqueta.
     """
     from collections import Counter
 
@@ -288,15 +411,70 @@ def _agrupar(origen, dimension, filtros) -> list[tuple[str, int]]:
     return sorted(conteo.items(), key=lambda kv: (-kv[1], str(kv[0])))
 
 
+ORDENES_AGRUPADO = {'grupo', '-grupo', 'cantidad', '-cantidad'}
+
+
+def _ordenar_agrupado(items: list[tuple[str, int]], orden: str | None):
+    """Reordena los grupos según lo pedido ('' = cantidad desc, el default)."""
+    if not orden:
+        return items
+    if orden not in ORDENES_AGRUPADO:
+        raise ReporteInvalido(f'No se puede ordenar por «{orden.lstrip("-")}».')
+    desc = orden.startswith('-')
+    if orden.endswith('grupo'):
+        return sorted(items, key=lambda kv: str(kv[0]).lower(), reverse=desc)
+    return sorted(items, key=lambda kv: kv[1], reverse=desc)
+
+
+def _aplicar_orden(origen, qs, orden: str | None):
+    """Reordena el queryset del modo lista por un campo de la lista blanca.
+
+    Prefijo '-' = descendente. Siempre se añade el desempate del origen para
+    que la paginación sea estable (filas iguales no bailan entre páginas).
+    """
+    if not orden:
+        return qs
+    desc = orden.startswith('-')
+    key = orden[1:] if desc else orden
+    campo = next((c for c in origen['campos'] if c.key == key), None)
+    if campo is None or not campo.orden:
+        raise ReporteInvalido(f'No se puede ordenar por «{key}».')
+    # XOR: un campo invertido (antigüedad) asciende cuando su columna desciende.
+    pfx = '-' if desc != campo.orden_invertido else ''
+    return qs.order_by(f'{pfx}{campo.orden}', *origen['desempate'])
+
+
+def _porcentaje(n: int, total: int) -> float:
+    return round(n * 100 / total, 1) if total else 0.0
+
+
 def _campos_agrupado(dimension) -> list[dict]:
     return [
-        {'key': 'grupo', 'label': dimension.label, 'tipo': dimension.tipo},
-        {'key': 'cantidad', 'label': 'Cantidad', 'tipo': 'numero'},
+        {'key': 'grupo', 'label': dimension.label, 'tipo': dimension.tipo,
+         'sortable': True},
+        {'key': 'cantidad', 'label': 'Cantidad', 'tipo': 'numero', 'sortable': True},
+        {'key': 'porcentaje', 'label': '% del total', 'tipo': 'porcentaje',
+         'sortable': False},
     ]
 
 
 def _es_agrupado(params) -> bool:
     return params.get('modo') == 'agrupado'
+
+
+def _respuesta_csv(filename: str, filas) -> HttpResponse:
+    """CSV con separador ';' y BOM UTF-8: así Excel en es-CO lo abre en
+    columnas y con tildes correctas al hacer doble clic. Otras herramientas
+    (Power BI, pandas) detectan el separador sin problema."""
+    buf = io.StringIO()
+    # BOM UTF-8 al inicio: sin él, Excel asume Latin-1 y daña las tildes.
+    buf.write('﻿')
+    w = csv.writer(buf, delimiter=';')
+    for fila in filas:
+        w.writerow(fila)
+    resp = HttpResponse(buf.getvalue(), content_type='text/csv; charset=utf-8')
+    resp['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return resp
 
 
 # --- Vistas -----------------------------------------------------------------
@@ -327,17 +505,22 @@ class ReportesConsultarView(APIView):
                 status=400,
             )
         filtros = _leer_filtros(params)
+        orden = params.get('orden') or ''
         paginator = PageNumberPagination()
 
         if _es_agrupado(params):
             try:
                 dimension = _validar_dimension(origen, params.get('dimension', ''))
+                items = _ordenar_agrupado(
+                    _agrupar(origen, dimension, filtros), orden
+                )
             except ReporteInvalido as e:
                 return Response({'detail': str(e)}, status=400)
-            items = _agrupar(origen, dimension, filtros)
             total = sum(n for _, n in items)
             page = paginator.paginate_queryset(items, request, view=self)
-            rows = [[etiqueta, n] for etiqueta, n in page]
+            rows = [
+                [etiqueta, n, _porcentaje(n, total)] for etiqueta, n in page
+            ]
             return Response({
                 'count': paginator.page.paginator.count,
                 'next': paginator.get_next_link(),
@@ -349,9 +532,9 @@ class ReportesConsultarView(APIView):
 
         try:
             _, seleccion = _validar(params.get('origen', ''), _campos_pedidos(params))
+            qs = _aplicar_orden(origen, origen['queryset'](filtros), orden)
         except ReporteInvalido as e:
             return Response({'detail': str(e)}, status=400)
-        qs = origen['queryset'](filtros)
         page = paginator.paginate_queryset(qs, request, view=self)
         rows = [[c.render(r) for c in seleccion] for r in page]
         return Response({
@@ -359,7 +542,9 @@ class ReportesConsultarView(APIView):
             'next': paginator.get_next_link(),
             'previous': paginator.get_previous_link(),
             'campos': [
-                {'key': c.key, 'label': c.label, 'tipo': c.tipo} for c in seleccion
+                {'key': c.key, 'label': c.label, 'tipo': c.tipo,
+                 'sortable': bool(c.orden)}
+                for c in seleccion
             ],
             'rows': rows,
             'total': None,
@@ -367,7 +552,11 @@ class ReportesConsultarView(APIView):
 
 
 class ReportesExportarView(APIView):
-    """Excel (.xlsx) con TODAS las filas del reporte (mismo look de marca)."""
+    """Descarga TODAS las filas del reporte.
+
+    `?formato=csv` -> CSV (';' + BOM). Cualquier otro valor -> Excel (.xlsx)
+    con el look de marca de siempre.
+    """
 
     permission_classes = [IsAuthenticated]
 
@@ -378,33 +567,58 @@ class ReportesExportarView(APIView):
         if origen is None:
             return Response({'detail': f'Origen no válido: «{origen_key}».'}, status=400)
         filtros = _leer_filtros(params)
-
-        wb = Workbook()
-        ws = wb.active
-        ws.title = 'Reporte'
+        orden = params.get('orden') or ''
+        es_csv = params.get('formato') == 'csv'
 
         if _es_agrupado(params):
             try:
                 dimension = _validar_dimension(origen, params.get('dimension', ''))
+                items = _ordenar_agrupado(
+                    _agrupar(origen, dimension, filtros), orden
+                )
             except ReporteInvalido as e:
                 return Response({'detail': str(e)}, status=400)
-            items = _agrupar(origen, dimension, filtros)
-            ws.append([dimension.label, 'Cantidad'])
+            total = sum(n for _, n in items)
+
+            if es_csv:
+                filas = [[dimension.label, 'Cantidad', '% del total']]
+                filas += [[e, n, _porcentaje(n, total)] for e, n in items]
+                filas.append(['Total', total, 100.0 if total else 0])
+                return _respuesta_csv(f'reporte_{origen_key}_agrupado.csv', filas)
+
+            wb = Workbook()
+            ws = wb.active
+            ws.title = 'Reporte'
+            ws.append([dimension.label, 'Cantidad', '% del total'])
             _estilar_encabezado(ws)
             for etiqueta, n in items:
-                ws.append([etiqueta, n])
-            ws.append(['Total', sum(n for _, n in items)])
-            for col, ancho in (('A', 28), ('B', 14)):
+                # El % va como número real con formato de porcentaje: en Excel
+                # se puede operar con él (no es un texto "64,3 %").
+                ws.append([etiqueta, n, (n / total) if total else 0])
+            ws.append(['Total', total, 1 if total else 0])
+            for fila in ws.iter_rows(min_row=2, min_col=3, max_col=3):
+                fila[0].number_format = '0.0%'
+            for col, ancho in (('A', 28), ('B', 14), ('C', 12)):
                 ws.column_dimensions[col].width = ancho
             return _respuesta_xlsx(wb, f'reporte_{origen_key}_agrupado.xlsx')
 
         try:
             _, seleccion = _validar(origen_key, _campos_pedidos(params))
+            qs = _aplicar_orden(origen, origen['queryset'](filtros), orden)
         except ReporteInvalido as e:
             return Response({'detail': str(e)}, status=400)
+
+        if es_csv:
+            filas = [[c.label for c in seleccion]]
+            filas += [[c.render(row) for c in seleccion] for row in qs]
+            return _respuesta_csv(f'reporte_{origen_key}.csv', filas)
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = 'Reporte'
         ws.append([c.label for c in seleccion])
         _estilar_encabezado(ws)
-        for row in origen['queryset'](filtros):
+        for row in qs:
             ws.append([c.render(row) for c in seleccion])
         for i in range(1, len(seleccion) + 1):
             ws.column_dimensions[get_column_letter(i)].width = 22
@@ -426,11 +640,31 @@ def _validar_definicion(definicion) -> None:
         _validar(definicion.get('origen', ''), definicion.get('campos') or [])
 
 
+def _es_admin(user) -> bool:
+    return getattr(user, 'role', '') == 'admin' or bool(user.is_superuser)
+
+
 class ReporteGuardadoSerializer(serializers.ModelSerializer):
+    # `es_propio` deja que el frontend distinga "míos" de "plantillas de otros"
+    # (las ajenas se pueden usar pero no editar ni borrar).
+    es_propio = serializers.SerializerMethodField()
+    creado_por = serializers.SerializerMethodField()
+
     class Meta:
         model = ReporteGuardado
-        fields = ['id', 'nombre', 'definicion', 'creado']
+        fields = ['id', 'nombre', 'definicion', 'compartido', 'es_propio',
+                  'creado_por', 'creado']
         read_only_fields = ['id', 'creado']
+
+    def get_es_propio(self, obj) -> bool:
+        return obj.usuario_id == self.context['request'].user.pk
+
+    def get_creado_por(self, obj) -> str:
+        u = obj.usuario
+        if u is None:
+            return '—'
+        nombre = f'{u.first_name} {u.last_name}'.strip()
+        return nombre or u.email
 
     def validate_nombre(self, value):
         value = (value or '').strip()
@@ -443,6 +677,14 @@ class ReporteGuardadoSerializer(serializers.ModelSerializer):
             _validar_definicion(value)
         except ReporteInvalido as e:
             raise serializers.ValidationError(str(e))
+        return value
+
+    def validate_compartido(self, value):
+        # Compartir como plantilla para todos es potestad del Administrador.
+        if value and not _es_admin(self.context['request'].user):
+            raise serializers.ValidationError(
+                'Solo un administrador puede compartir plantillas.'
+            )
         return value
 
     def validate(self, attrs):
@@ -460,9 +702,10 @@ class ReporteGuardadoSerializer(serializers.ModelSerializer):
 
 
 class ReporteGuardadoViewSet(viewsets.ModelViewSet):
-    """CRUD de los reportes guardados del usuario autenticado (privados).
+    """CRUD de los reportes guardados del usuario autenticado.
 
-    `get_queryset` acota a los del usuario, así nadie ve ni toca los de otro.
+    Se listan los propios + las plantillas compartidas de otros; editar y
+    borrar solo aplica sobre los propios (el queryset de escritura lo acota).
     """
 
     serializer_class = ReporteGuardadoSerializer
@@ -470,7 +713,13 @@ class ReporteGuardadoViewSet(viewsets.ModelViewSet):
     pagination_class = None  # lista completa: son pocos por usuario
 
     def get_queryset(self):
-        return ReporteGuardado.objects.filter(usuario=self.request.user)
+        user = self.request.user
+        if self.action in ('update', 'partial_update', 'destroy'):
+            # Escribir/borrar: solo los míos (una plantilla ajena da 404).
+            return ReporteGuardado.objects.filter(usuario=user)
+        return ReporteGuardado.objects.filter(
+            Q(usuario=user) | Q(compartido=True)
+        ).select_related('usuario')
 
     def perform_create(self, serializer):
         serializer.save(usuario=self.request.user)

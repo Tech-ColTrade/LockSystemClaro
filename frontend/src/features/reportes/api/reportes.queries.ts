@@ -46,8 +46,20 @@ export function useReportesGuardados() {
 export function useCrearGuardado() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (v: { nombre: string; definicion: ReporteDef }) =>
-      reportesApi.guardados.crear(v.nombre, v.definicion),
+    mutationFn: (v: { nombre: string; definicion: ReporteDef; compartido?: boolean }) =>
+      reportesApi.guardados.crear(v.nombre, v.definicion, v.compartido ?? false),
+    onSuccess: () => qc.invalidateQueries({ queryKey: reportesKeys.guardados() }),
+  })
+}
+
+/** Renombrar, sobrescribir la definición o (des)compartir un guardado propio. */
+export function useActualizarGuardado() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (v: {
+      id: number
+      patch: Partial<{ nombre: string; definicion: ReporteDef; compartido: boolean }>
+    }) => reportesApi.guardados.actualizar(v.id, v.patch),
     onSuccess: () => qc.invalidateQueries({ queryKey: reportesKeys.guardados() }),
   })
 }

@@ -16,16 +16,16 @@ import {
 export const usuarioKeys = {
   all: ['usuarios'] as const,
   lists: () => [...usuarioKeys.all, 'list'] as const,
-  list: (search: string, page: number) =>
-    [...usuarioKeys.lists(), { search, page }] as const,
+  list: (search: string, page: number, soloActivos: boolean) =>
+    [...usuarioKeys.lists(), { search, page, soloActivos }] as const,
   details: () => [...usuarioKeys.all, 'detail'] as const,
   detail: (id: string) => [...usuarioKeys.details(), id] as const,
 }
 
-export function useUsuarios(search: string, page: number) {
+export function useUsuarios(search: string, page: number, soloActivos = false) {
   return useQuery({
-    queryKey: usuarioKeys.list(search, page),
-    queryFn: () => usuariosApi.list(search, page),
+    queryKey: usuarioKeys.list(search, page, soloActivos),
+    queryFn: () => usuariosApi.list(search, page, soloActivos),
     placeholderData: keepPreviousData,
   })
 }

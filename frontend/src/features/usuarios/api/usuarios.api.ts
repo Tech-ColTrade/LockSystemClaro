@@ -20,10 +20,12 @@ export interface UsuarioUpdateInput {
 }
 
 export const usuariosApi = {
-  list: (search = '', page = 1) => {
+  list: (search = '', page = 1, soloActivos = false) => {
     const params = new URLSearchParams()
     if (search) params.set('search', search)
     if (page > 1) params.set('page', String(page))
+    // La tabla oculta los inactivos por defecto ("Ver inactivos" los trae).
+    if (soloActivos) params.set('activos', '1')
     const qs = params.toString()
     return apiFetch<Paginated<User>>(`/api/usuarios/${qs ? `?${qs}` : ''}`)
   },

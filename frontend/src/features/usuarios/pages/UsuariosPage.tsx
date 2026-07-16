@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, CircleAlert, Plus } from 'lucide-react'
+import { ChevronLeft, ChevronRight, CircleAlert, Eye, EyeOff, Plus } from 'lucide-react'
 import { useUsuarios } from '@/features/usuarios/api/usuarios.queries'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -23,7 +23,9 @@ export function UsuariosPage() {
   const [page, setPage] = useState(1)
   const [query, setQuery] = useState('')
   const [search, setSearch] = useState('')
-  const listQuery = useUsuarios(search, page)
+  // Los inactivos se ocultan por defecto; "Ver inactivos" los trae de vuelta.
+  const [verInactivos, setVerInactivos] = useState(false)
+  const listQuery = useUsuarios(search, page, !verInactivos)
   const items = listQuery.data?.results ?? []
   const count = listQuery.data?.count ?? 0
   const loading = listQuery.isLoading
@@ -52,16 +54,30 @@ export function UsuariosPage() {
         </Button>
       </div>
 
-      <form onSubmit={onSearch} className="mb-4 flex max-w-sm gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Buscar por correo o nombre…"
-        />
-        <Button type="submit" variant="outline">
-          Buscar
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <form onSubmit={onSearch} className="flex max-w-sm flex-1 gap-2">
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Buscar por correo o nombre…"
+          />
+          <Button type="submit" variant="outline">
+            Buscar
+          </Button>
+        </form>
+        <Button
+          type="button"
+          variant="outline"
+          aria-pressed={verInactivos}
+          onClick={() => {
+            setVerInactivos((v) => !v)
+            setPage(1)
+          }}
+        >
+          {verInactivos ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
+          {verInactivos ? 'Ocultar inactivos' : 'Ver inactivos'}
         </Button>
-      </form>
+      </div>
 
       {error && (
         <Alert variant="destructive" className="mb-4">

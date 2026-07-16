@@ -166,6 +166,14 @@ class AdminUserListCreateView(generics.ListCreateAPIView):
     search_fields = ['email', 'first_name', 'last_name']
     ordering_fields = ['email', 'date_joined', 'role']
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        # ?activos=1 -> solo cuentas activas. La tabla de usuarios oculta los
+        # inactivos por defecto y los muestra con el botón "Ver inactivos".
+        if self.request.query_params.get('activos') in ('1', 'true'):
+            qs = qs.filter(is_active=True)
+        return qs
+
     def get_serializer_class(self):
         if self.request.method == 'POST':
             return AdminUserCreateSerializer

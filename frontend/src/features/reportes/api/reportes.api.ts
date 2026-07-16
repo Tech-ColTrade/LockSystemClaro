@@ -7,12 +7,20 @@
 
 import { apiDownload, apiFetch } from '@/lib/http/client'
 
-export type CampoTipo = 'texto' | 'fecha' | 'booleano' | 'usuario' | 'numero'
+export type CampoTipo =
+  | 'texto'
+  | 'fecha'
+  | 'booleano'
+  | 'usuario'
+  | 'numero'
+  | 'porcentaje'
 
 export interface CampoMeta {
   key: string
   label: string
   tipo: CampoTipo
+  /** La columna admite ordenar por ella (clic en el encabezado). */
+  sortable?: boolean
 }
 
 export interface OrigenFiltros {
@@ -54,6 +62,8 @@ export interface ReporteDef {
   /** Modo agrupado: dimensión por la que se cuenta. */
   dimension: string
   filtros: ReporteFiltros
+  /** Orden: clave de columna, con prefijo '-' para descendente ('' = default). */
+  orden: string
 }
 
 export interface PreviewResponse {
@@ -76,6 +86,7 @@ function buildParams(def: ReporteDef, page?: number): string {
   } else if (def.campos.length) {
     p.set('campos', def.campos.join(','))
   }
+  if (def.orden) p.set('orden', def.orden)
   const f = def.filtros
   if (f.desde) p.set('desde', f.desde)
   if (f.hasta) p.set('hasta', f.hasta)
@@ -86,11 +97,16 @@ function buildParams(def: ReporteDef, page?: number): string {
   return p.toString()
 }
 
-/** Un reporte guardado por el usuario (privado). */
+/** Un reporte guardado: propio del usuario, o plantilla compartida de otro. */
 export interface ReporteGuardado {
   id: number
   nombre: string
   definicion: ReporteDef
+  /** Plantilla visible para todos (solo un admin puede marcarla). */
+  compartido: boolean
+  /** true si lo creó el usuario actual (los ajenos no se editan/borran). */
+  es_propio: boolean
+  creado_por: string
   creado: string
 }
 
@@ -101,19 +117,28 @@ export const reportesApi = {
     apiFetch<PreviewResponse>(`/api/reportes/consultar/?${buildParams(def, page)}`),
 
   // Baja TODAS las filas del reporte (no solo la página visible).
-  exportar: (def: ReporteDef) =>
+  exportar: (def: ReporteDef, formato: 'xlsx' | 'csv' = 'xlsx') =>
     apiDownload(
-      `/api/reportes/exportar/?${buildParams(def)}`,
-      `reporte_${def.origen}${def.modo === 'agrupado' ? '_agrupado' : ''}.xlsx`,
+      `/api/reportes/exportar/?${buildParams(def)}${formato === 'csv' ? '&formato=csv' : ''}`,
+      `reporte_${def.origen}${def.modo === 'agrupado' ? '_agrupado' : ''}.${formato}`,
     ),
 
-  // --- Reportes guardados (privados por usuario) ---
+  // --- Reportes guardados (propios + plantillas compartidas) ---
   guardados: {
     list: () => apiFetch<ReporteGuardado[]>('/api/reportes/guardados/'),
-    crear: (nombre: string, definicion: ReporteDef) =>
+    crear: (nombre: string, definicion: ReporteDef, compartido = false) =>
       apiFetch<ReporteGuardado>('/api/reportes/guardados/', {
         method: 'POST',
-        body: JSON.stringify({ nombre, definicion }),
+        body: JSON.stringify({ nombre, definicion, compartido }),
+      }),
+    // Renombrar, sobrescribir la definición o (des)compartir.
+    actualizar: (
+      id: number,
+      patch: Partial<{ nombre: string; definicion: ReporteDef; compartido: boolean }>,
+    ) =>
+      apiFetch<ReporteGuardado>(`/api/reportes/guardados/${id}/`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
       }),
     eliminar: (id: number) =>
       apiFetch<void>(`/api/reportes/guardados/${id}/`, { method: 'DELETE' }),

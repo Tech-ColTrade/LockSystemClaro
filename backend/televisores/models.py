@@ -251,6 +251,9 @@ class ReporteGuardado(models.Model):
     )
     nombre = models.CharField('Nombre', max_length=120)
     definicion = models.JSONField(default=dict)
+    # Plantilla: visible para todos los usuarios (solo un administrador puede
+    # marcarla). Los demás pueden usarla pero no editarla ni borrarla.
+    compartido = models.BooleanField('Compartido con todos', default=False)
     creado = models.DateTimeField(auto_now_add=True)
     actualizado = models.DateTimeField(auto_now=True)
 
