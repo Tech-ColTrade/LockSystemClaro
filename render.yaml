@@ -56,6 +56,12 @@ services:
         sync: false
       - key: WHALETV_PORTAL_PASSWORD
         sync: false
+      # URLs del portal por entorno (ACC/PROD); si se omiten se usa el host
+      # por defecto lockservice.whaletv.com.
+      - key: WHALETV_PORTAL_LOGIN_URL
+        sync: false
+      - key: WHALETV_PORTAL_DEVICE_LIST_URL
+        sync: false
 
   # ---------------------------------------------------------------------------
   # Frontend

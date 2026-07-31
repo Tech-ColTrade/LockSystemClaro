@@ -88,6 +88,9 @@ WHALETV_LOCK_API_SECRET_KEY=
 # --- WhaleTV Portal (automatización Selenium) — SECRETOS ---
 WHALETV_PORTAL_EMAIL=
 WHALETV_PORTAL_PASSWORD=
+# URLs del portal por entorno (ACC/PROD). Si se omiten usa lockservice.whaletv.com
+WHALETV_PORTAL_LOGIN_URL=
+WHALETV_PORTAL_DEVICE_LIST_URL=
 ```
 
 Genera un `SECRET_KEY` seguro con:
