@@ -29,6 +29,15 @@ import { DashboardLayout } from '@/shared/layout/DashboardLayout'
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
   {
+    // Página personal de felicitación, ajena al producto: pública (sin sesión)
+    // y "protegida" solo por lo impredecible de la URL. Carga diferida para
+    // que no pese en el bundle de la aplicación.
+    path: '/01HX9QK8M5V2N7R4TY6BZ3CW8A',
+    lazy: async () => ({
+      Component: (await import('@/features/cumple/pages/CumplePage')).CumplePage,
+    }),
+  },
+  {
     element: <ProtectedRoute />,
     children: [
       {
