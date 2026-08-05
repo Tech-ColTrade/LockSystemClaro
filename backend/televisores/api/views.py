@@ -6,9 +6,14 @@ from rest_framework.response import Response
 from televisores.models import Televisor
 from users.permissions import CanOperate
 from televisores.portal.client import (
-    PortalClient,
     PortalDispositivoNoExiste,
     PortalError,
+)
+from televisores.portal.proveedor import modo as modo_portal
+from televisores.portal.proveedor import proveedor
+from televisores.portal.scraper import (
+    PortalCapacidadNoDisponible,
+    PortalPasscodeInvalido,
 )
 
 from .imports import importar_televisores
@@ -20,6 +25,18 @@ def client_ip(request) -> str | None:
     if xff:
         return xff.split(',')[0].strip()
     return request.META.get('REMOTE_ADDR')
+
+
+def _eui64_o_vacio(tv) -> str:
+    """EUI-64 del televisor, o '' si la MAC no permite derivarlo.
+
+    En modo portal la MAC basta para operar (el portal busca por MAC), así que
+    una MAC rara no debe tumbar la respuesta: solo deja el campo vacío.
+    """
+    try:
+        return tv.eui64_portal
+    except ValueError:
+        return ''
 
 
 def usuario_para_auditoria(request):
@@ -113,7 +130,7 @@ class TelevisorViewSet(viewsets.ModelViewSet):
 
     def _leer_estado_portal(self, tv: Televisor) -> Response | dict:
         try:
-            data = PortalClient().get_status(tv.eui64_portal)
+            data = proveedor().get_status(tv)
         except ValueError:
             return self._respuesta_mac_invalida()
         except PortalDispositivoNoExiste as e:
@@ -121,11 +138,13 @@ class TelevisorViewSet(viewsets.ModelViewSet):
         except PortalError as e:
             return Response({'detail': str(e)}, status=status.HTTP_502_BAD_GATEWAY)
         return {
-            'eui64': tv.eui64_portal,
+            'eui64': _eui64_o_vacio(tv),
             'lock_status': data['lockStatus'],       # 0=desbloqueado, 1=bloqueado
+            # En modo portal payment/clear no existen: el portal no los publica.
             'payment_status': data['paymentStatus'],  # 0=en progreso, 1=completado
             'clear_status': data['clearStatus'],      # 0=normal, 1=limpiando
             'inhabilitado_portal': data['lockStatus'] == 1,
+            'modo': modo_portal(),
         }
 
     @action(detail=True, methods=['get'], url_path='estado-portal')
@@ -178,6 +197,68 @@ class TelevisorViewSet(viewsets.ModelViewSet):
             {'job': job.pk, 'total': job.total}, status=status.HTTP_202_ACCEPTED
         )
 
+    @action(detail=False, methods=['get'], url_path='jobs-activos')
+    def jobs_activos(self, request):
+        """Todo lo que está corriendo ahora mismo: syncs individuales y lotes.
+
+        Existe para que un operador que cerró la pestaña (o llega desde otro
+        equipo) pueda ver qué hay en marcha y cancelarlo. Antes, si perdías la
+        pantalla del progreso no había forma de volver a encontrar el job.
+
+        `vivo` distingue lo que realmente avanza de lo que se quedó sin hilo
+        (ver televisores/watchdog.py); el frontend lo usa para ofrecer
+        descartarlo en vez de esperar.
+        """
+        from televisores.models import BulkSyncJob, SyncJob
+        from televisores.watchdog import esta_vivo, marcar_huerfanos
+
+        marcar_huerfanos()
+
+        activos = [SyncJob.PENDIENTE, SyncJob.CORRIENDO]
+        individuales = [
+            {
+                'job': j.pk,
+                'televisor_id': j.televisor_id,
+                'mac_address': j.televisor.mac_address,
+                'serial_number': j.televisor.serial_number,
+                'inhabilitar': j.inhabilitar,
+                'estado': j.estado,
+                'porcentaje': j.porcentaje,
+                'creado': j.creado,
+                'actualizado': j.actualizado,
+                'vivo': esta_vivo(j),
+                'usuario': j.usuario.get_full_name() if j.usuario else '',
+            }
+            for j in SyncJob.objects.filter(estado__in=activos)
+            .select_related('televisor', 'usuario')
+            .order_by('-creado')[:50]
+        ]
+
+        lotes = [
+            {
+                'job': b.pk,
+                'modo': b.modo,  # 'sync' | 'validacion'
+                'estado': b.estado,
+                'total': b.total,
+                'procesados': b.procesados,
+                'ok_count': b.ok_count,
+                'error_count': b.error_count,
+                'porcentaje': b.porcentaje,
+                'cancelar_solicitado': b.cancelar_solicitado,
+                'creado': b.creado,
+                'actualizado': b.actualizado,
+                'vivo': esta_vivo(b),
+                'usuario': b.usuario.get_full_name() if b.usuario else '',
+            }
+            for b in BulkSyncJob.objects.filter(
+                estado__in=[BulkSyncJob.PENDIENTE, BulkSyncJob.CORRIENDO]
+            )
+            .select_related('usuario')
+            .order_by('-creado')[:50]
+        ]
+
+        return Response({'individuales': individuales, 'lotes': lotes})
+
     @action(
         detail=False,
         methods=['get'],
@@ -186,6 +267,10 @@ class TelevisorViewSet(viewsets.ModelViewSet):
     def validar_masivo_status(self, request, job_id=None):
         """Progreso/resultado de una validación masiva (polling)."""
         from televisores.models import BulkSyncJob
+        from televisores.watchdog import marcar_huerfanos
+
+        # Cierra los lotes cuyo hilo murió; si no, este polling no acabaría.
+        marcar_huerfanos()
 
         try:
             job = BulkSyncJob.objects.prefetch_related('items').get(pk=job_id)
@@ -216,14 +301,30 @@ class TelevisorViewSet(viewsets.ModelViewSet):
         """Grupos de Pin Code disponibles del dispositivo (passCode + pinCode)."""
         tv = self.get_object()
         try:
-            grupos = PortalClient().get_pin_codes(tv.eui64_portal)
+            grupos = proveedor().get_pin_codes(tv)
         except ValueError:
             return self._respuesta_mac_invalida()
+        except PortalCapacidadNoDisponible as e:
+            # Modo portal: la bolsa de códigos no es consultable. Se responde 501
+            # (no implementado en esta configuración) y NO una lista vacía, que
+            # se confundiría con "el dispositivo se quedó sin códigos".
+            return Response(
+                {
+                    'detail': (
+                        f'{e} Usa POST pincodes/usar/ con el Código de Acceso que '
+                        'muestra el televisor.'
+                    ),
+                    'modo': modo_portal(),
+                },
+                status=status.HTTP_501_NOT_IMPLEMENTED,
+            )
         except PortalDispositivoNoExiste as e:
             return Response({'detail': str(e)}, status=status.HTTP_404_NOT_FOUND)
         except PortalError as e:
             return Response({'detail': str(e)}, status=status.HTTP_502_BAD_GATEWAY)
-        return Response({'eui64': tv.eui64_portal, 'grupos': grupos})
+        return Response(
+            {'eui64': _eui64_o_vacio(tv), 'grupos': grupos, 'modo': modo_portal()}
+        )
 
     @action(detail=True, methods=['post'], url_path='pincodes/usar')
     def pincode_usar(self, request, pk=None):
@@ -239,40 +340,33 @@ class TelevisorViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        client = PortalClient()
+        # El proveedor resuelve el passcode y ya lo deja marcado como usado:
+        # por API con `marcar_pincodes_usados`, por portal al generarlo.
         try:
-            grupos = client.get_pin_codes(tv.eui64_portal)
+            pin_code = proveedor().usar_pincode(tv, passcode)
         except ValueError:
             return self._respuesta_mac_invalida()
+        except PortalPasscodeInvalido:
+            return Response(
+                {'detail': 'No hay un Código Pin disponible para ese Código de Acceso.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         except PortalDispositivoNoExiste as e:
             return Response({'detail': str(e)}, status=status.HTTP_404_NOT_FOUND)
         except PortalError as e:
             return Response({'detail': str(e)}, status=status.HTTP_502_BAD_GATEWAY)
 
-        grupo = next((g for g in grupos if g['passCode'] == passcode), None)
-        if grupo is None:
-            return Response(
-                {'detail': 'No hay un Código Pin disponible para ese Código de Acceso.'},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        # Marca el código como usado en el portal (no bloquea si falla).
-        try:
-            client.marcar_pincodes_usados(tv.eui64_portal, [passcode])
-        except PortalError:
-            pass
-
         registro = PinCodeUsado.objects.create(
             televisor=tv,
             mac_address=tv.mac_address,
             passcode=passcode,
-            pin_code=grupo['pinCode'],
+            pin_code=pin_code,
             usuario=usuario_para_auditoria(request),
             ip=client_ip(request),
         )
         return Response({
             'passcode': passcode,
-            'pin_code': grupo['pinCode'],
+            'pin_code': pin_code,
             'creado': registro.creado,
         })
 
@@ -312,6 +406,11 @@ class TelevisorViewSet(viewsets.ModelViewSet):
     def sync_status(self, request, pk=None, job_id=None):
         """Estado/progreso de un SyncJob (para polling desde el frontend)."""
         from televisores.models import SyncJob
+        from televisores.watchdog import marcar_huerfanos
+
+        # Antes de responder, cierra los jobs cuyo hilo murió (reinicio del
+        # servidor): si no, este polling no terminaría nunca.
+        marcar_huerfanos()
 
         # get_object() resuelve el televisor por la columna que use el viewset
         # (PK en el panel, serial en integración).
@@ -330,9 +429,80 @@ class TelevisorViewSet(viewsets.ModelViewSet):
             'inhabilitar': job.inhabilitar,
         })
 
+    @action(
+        detail=True,
+        methods=['post'],
+        url_path=r'sync/(?P<job_id>[0-9]+)/cancelar',
+    )
+    def sync_cancelar(self, request, pk=None, job_id=None):
+        """Descarta un SyncJob que se quedó colgado.
+
+        No mata nada: un sync individual es una sola operación de Selenium que
+        no se puede interrumpir a mitad. Por eso solo se descartan los jobs SIN
+        LATIDO (su hilo ya no existe). Si el job sigue trabajando responde 409,
+        para no dejarlo 'cancelado' y que luego reviva al terminar el hilo.
+        """
+        from televisores.models import SyncJob
+        from televisores.watchdog import MENSAJE, esta_vivo, marcar_huerfanos
+
+        marcar_huerfanos()
+
+        tv = self.get_object()
+        job = SyncJob.objects.filter(pk=job_id, televisor=tv).first()
+        if job is None:
+            return Response(
+                {'detail': 'Job no encontrado.'}, status=status.HTTP_404_NOT_FOUND
+            )
+        if job.finalizado:
+            return Response({
+                'job': job.pk,
+                'estado': job.estado,
+                'porcentaje': job.porcentaje,
+                'finalizado': True,
+                'error': job.error,
+                'inhabilitar': job.inhabilitar,
+            })
+        if esta_vivo(job):
+            return Response(
+                {
+                    'detail': (
+                        'La sincronización sigue en curso; no se puede cancelar a '
+                        'mitad. Espera a que termine o vuelve a intentarlo si deja '
+                        'de avanzar.'
+                    ),
+                    'estado': job.estado,
+                    'porcentaje': job.porcentaje,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        # Sin latido: el hilo murió. Se cierra para desbloquear al que espera.
+        from django.utils import timezone
+
+        ahora = timezone.now()
+        SyncJob.objects.filter(pk=job.pk).update(
+            estado=SyncJob.ERROR,
+            error=MENSAJE,
+            porcentaje=100,
+            terminado_en=ahora,
+            actualizado=ahora,
+        )
+        job.refresh_from_db()
+        return Response({
+            'job': job.pk,
+            'estado': job.estado,
+            'porcentaje': job.porcentaje,
+            'finalizado': job.finalizado,
+            'error': job.error,
+            'inhabilitar': job.inhabilitar,
+        })
+
     @action(detail=True, methods=['get'])
     def historial(self, request, pk=None):
         """Histórico de cambios de estado (SyncJobs) del televisor."""
+        from televisores.watchdog import marcar_huerfanos
+
+        marcar_huerfanos()
         tv = self.get_object()
         jobs = tv.sync_jobs.all()[:50]
         return Response(SyncJobSerializer(jobs, many=True).data)
@@ -473,6 +643,10 @@ class TelevisorViewSet(viewsets.ModelViewSet):
     def enrolar_estado_status(self, request, job_id=None):
         """Progreso de una sincronización masiva (para polling)."""
         from televisores.models import BulkSyncJob
+        from televisores.watchdog import marcar_huerfanos
+
+        # Cierra los lotes cuyo hilo murió; si no, este polling no acabaría.
+        marcar_huerfanos()
 
         try:
             job = BulkSyncJob.objects.prefetch_related('items').get(pk=job_id)
@@ -512,8 +686,15 @@ class TelevisorViewSet(viewsets.ModelViewSet):
 
     def _cancelar_bulk_job(self, job_id):
         """Marca un BulkSyncJob (sync o validación) para que el hilo en
-        segundo plano lo detenga en el próximo televisor que revise."""
+        segundo plano lo detenga en el próximo televisor que revise.
+
+        Si el lote ya no late, no hay hilo que atienda la petición: en ese caso
+        se cierra directamente, que si no quedaría 'corriendo' para siempre.
+        """
         from televisores.models import BulkSyncJob
+        from televisores.watchdog import esta_vivo, marcar_huerfanos
+
+        marcar_huerfanos()
 
         try:
             job = BulkSyncJob.objects.get(pk=job_id)
@@ -522,6 +703,12 @@ class TelevisorViewSet(viewsets.ModelViewSet):
                 {'detail': 'Job no encontrado.'}, status=status.HTTP_404_NOT_FOUND
             )
         if not job.finalizado:
-            job.cancelar_solicitado = True
-            job.save(update_fields=['cancelar_solicitado'])
+            if esta_vivo(job):
+                # Hay hilo: cancelación cooperativa (se detiene en el siguiente).
+                job.cancelar_solicitado = True
+                job.save(update_fields=['cancelar_solicitado'])
+            else:
+                job.estado = BulkSyncJob.CANCELADO
+                job.terminado_en = timezone.now()
+                job.save(update_fields=['estado', 'terminado_en', 'actualizado'])
         return Response(BulkSyncJobSerializer(job).data)

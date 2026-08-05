@@ -293,6 +293,11 @@ WHALETV_LOCK_API = {
     'TIMEOUT': int(os.getenv('WHALETV_LOCK_API_TIMEOUT', '15')),
 }
 
+# Minutos sin latido tras los que se da por muerto un job de sincronización
+# (su hilo se fue con el proceso). Ver televisores/watchdog.py. Holgado a
+# propósito: un sync individual tarda ~40 s y un lote late en cada televisor.
+JOBS_TIMEOUT_MINUTOS = int(os.getenv('JOBS_TIMEOUT_MINUTOS', '10'))
+
 # ---------------------------------------------------------------------------
 # WhaleTV Portal (automatización web con Selenium) — permite BLOQUEAR/desbloquear
 # ---------------------------------------------------------------------------
@@ -317,16 +322,24 @@ WHALETV_PORTAL = {
 # En producción, exige que los secretos de integración estén definidos: evita
 # desplegar con credenciales vacías (fallo silencioso) o dejarlas en el código.
 if not DEBUG:
+    # El portal es obligatorio siempre: es la única vía para bloquear, y en modo
+    # portal también es de donde se lee todo (ver televisores/portal/proveedor.py).
     _faltantes = [
         nombre
         for nombre, valor in (
-            ('WHALETV_LOCK_API_ACCESS_KEY', WHALETV_LOCK_API['ACCESS_KEY']),
-            ('WHALETV_LOCK_API_SECRET_KEY', WHALETV_LOCK_API['SECRET_KEY']),
             ('WHALETV_PORTAL_EMAIL', WHALETV_PORTAL['EMAIL']),
             ('WHALETV_PORTAL_PASSWORD', WHALETV_PORTAL['PASSWORD']),
         )
         if not valor
     ]
+    # Las llaves de la Device Lock API sí pueden faltar (modo portal), pero a
+    # medias no: una sin la otra es una configuración rota que solo fallaría al
+    # primer uso, y siempre firmando mal.
+    _api = (WHALETV_LOCK_API['ACCESS_KEY'], WHALETV_LOCK_API['SECRET_KEY'])
+    if any(_api) and not all(_api):
+        _faltantes.append(
+            'WHALETV_LOCK_API_ACCESS_KEY/SECRET_KEY (define las dos o ninguna)'
+        )
     if _faltantes:
         raise ImproperlyConfigured(
             'Faltan secretos de integración WhaleTV en el entorno: '

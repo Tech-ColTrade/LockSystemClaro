@@ -12,6 +12,11 @@ python manage.py migrate --noinput
 echo "==> Recolectando estáticos"
 python manage.py collectstatic --noinput
 
+# Los hilos de sincronización mueren con el proceso anterior: sus jobs
+# quedarían en "corriendo" para siempre y el polling no terminaría nunca.
+echo "==> Cerrando jobs huérfanos del despliegue anterior"
+python manage.py cerrar_jobs_huerfanos
+
 # Gunicorn.
 #   gthread   : las sincronizaciones lanzan hilos daemon (bulk_sync.py) que no
 #               sobrevivirían al worker `sync` por defecto.

@@ -20,12 +20,17 @@ def _ejecutar(job_id: int):
         job = SyncJob.objects.get(pk=job_id)
         tv = Televisor.objects.get(pk=job.televisor_id)
 
+        # `actualizado` es el LATIDO que usa televisores/watchdog.py para saber
+        # si este hilo sigue vivo. Va a mano en cada update porque
+        # `QuerySet.update()` no dispara el `auto_now` del campo.
         SyncJob.objects.filter(pk=job_id).update(
-            estado=SyncJob.CORRIENDO, porcentaje=5
+            estado=SyncJob.CORRIENDO, porcentaje=5, actualizado=timezone.now()
         )
 
         def progreso(pct, _msg=''):
-            SyncJob.objects.filter(pk=job_id).update(porcentaje=pct)
+            SyncJob.objects.filter(pk=job_id).update(
+                porcentaje=pct, actualizado=timezone.now()
+            )
 
         res = sincronizar_estado(tv, progreso=progreso)
 
@@ -34,6 +39,7 @@ def _ejecutar(job_id: int):
                 estado=SyncJob.TERMINADO,
                 porcentaje=100,
                 terminado_en=timezone.now(),
+                actualizado=timezone.now(),
             )
         else:
             SyncJob.objects.filter(pk=job_id).update(
@@ -41,6 +47,7 @@ def _ejecutar(job_id: int):
                 porcentaje=100,
                 error=(res.error or 'No se pudo aplicar el cambio en el portal.')[:1000],
                 terminado_en=timezone.now(),
+                actualizado=timezone.now(),
             )
     except Exception as e:  # noqa: BLE001
         SyncJob.objects.filter(pk=job_id).update(
@@ -48,6 +55,7 @@ def _ejecutar(job_id: int):
             porcentaje=100,
             error=f'{type(e).__name__}: {e}'[:1000],
             terminado_en=timezone.now(),
+            actualizado=timezone.now(),
         )
     finally:
         # El hilo tiene su propia conexión a la BD; hay que cerrarla.

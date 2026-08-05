@@ -6,6 +6,7 @@ import type {
   EnrolarEstadoResult,
   ImportResult,
   PincodeRow,
+  JobsActivos,
   PinCodesResponse,
   RegistrosResumen,
   SincronizacionRow,
@@ -73,6 +74,16 @@ export const televisoresApi = {
   // Histórico de cambios de estado.
   historial: (id: number | string) =>
     apiFetch<SyncJobRecord[]>(`/api/televisores/${id}/historial/`),
+
+  // Todo lo que está corriendo ahora (para la pantalla "Sincronizaciones en curso").
+  jobsActivos: () => apiFetch<JobsActivos>('/api/televisores/jobs-activos/'),
+
+  // Descarta un sync individual colgado. Si el job sigue vivo el backend
+  // responde 409: no se puede cortar una operación de Selenium a mitad.
+  cancelarSync: (id: number | string, jobId: number) =>
+    apiFetch<SyncStatus>(`/api/televisores/${id}/sync/${jobId}/cancelar/`, {
+      method: 'POST',
+    }),
 
   // --- Enrolar Estado (masivo) ---
   enrolarEstado: (file: File) => {

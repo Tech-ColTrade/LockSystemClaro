@@ -17,7 +17,12 @@ db.sqlite3-journal
 /media/
 
 # Variables de entorno
+# Se ignora también cualquier variante (.env.produccion, .env.acc, copias de
+# respaldo…): todas llevan secretos. La única excepción es el .env.example,
+# que solo tiene los nombres de las claves sin valores.
 .env
+.env.*
+!.env.example
 
 # Editores / SO
 .vscode/

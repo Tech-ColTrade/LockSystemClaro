@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTelevisores } from '@/features/televisores/api/televisores.queries'
 import {
+  Activity,
   ChevronLeft,
   ChevronRight,
   CircleAlert,
@@ -61,6 +62,15 @@ function EstadoBadge({ inhabilitado }: { inhabilitado: boolean }) {
 
 export function TelevisoresPage() {
   const { canOperate } = usePermissions()
+  // Cuántas sincronizaciones hay en curso: se consulta al entrar para que el
+  // botón avise si quedó algo corriendo (p. ej. si alguien cerró la pestaña).
+  const [enCurso, setEnCurso] = useState(0)
+  useEffect(() => {
+    televisoresApi
+      .jobsActivos()
+      .then((d) => setEnCurso(d.individuales.length + d.lotes.length))
+      .catch(() => setEnCurso(0))
+  }, [])
   const [page, setPage] = useState(1)
   const [query, setQuery] = useState('')
   const [search, setSearch] = useState('')
@@ -158,6 +168,15 @@ export function TelevisoresPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" render={<Link to="/televisores/en-curso" />}>
+            <Activity />
+            Sincronizaciones en curso
+            {enCurso > 0 && (
+              <Badge variant="destructive" className="ml-1">
+                {enCurso}
+              </Badge>
+            )}
+          </Button>
           {canOperate && (
             <>
               <Button variant="outline" onClick={validacionMasiva} disabled={validando}>

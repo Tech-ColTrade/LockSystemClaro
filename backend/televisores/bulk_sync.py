@@ -12,14 +12,17 @@ from django.db import connections
 from django.utils import timezone
 
 from .models import BulkSyncItem, BulkSyncJob, Televisor
-from .portal.client import PortalClient, PortalError
+from .portal.client import PortalError
+from .portal.proveedor import sesion_proveedor
 from .portal.selenium_sync import abrir_sesion, aplicar_en_sesion
 
 
 def _ejecutar(job_id: int):
     driver = None
     try:
-        BulkSyncJob.objects.filter(pk=job_id).update(estado=BulkSyncJob.CORRIENDO)
+        BulkSyncJob.objects.filter(pk=job_id).update(
+            estado=BulkSyncJob.CORRIENDO, actualizado=timezone.now()
+        )
         items = list(
             BulkSyncItem.objects.filter(job_id=job_id).values_list('pk', 'televisor_id')
         )
@@ -56,12 +59,16 @@ def _ejecutar(job_id: int):
                 estado=estado_item, mensaje=mensaje[:500]
             )
             BulkSyncJob.objects.filter(pk=job_id).update(
-                procesados=procesados, ok_count=ok, error_count=err
+                procesados=procesados,
+                ok_count=ok,
+                error_count=err,
+                actualizado=timezone.now(),
             )
 
         BulkSyncJob.objects.filter(pk=job_id).update(
             estado=BulkSyncJob.CANCELADO if cancelado else BulkSyncJob.TERMINADO,
             terminado_en=timezone.now(),
+            actualizado=timezone.now(),
         )
     except Exception as e:  # noqa: BLE001
         # Falló el arranque/login: se marcan los items pendientes como error.
@@ -74,6 +81,7 @@ def _ejecutar(job_id: int):
                 job_id=job_id, estado=BulkSyncItem.ERROR
             ).count(),
             terminado_en=timezone.now(),
+            actualizado=timezone.now(),
         )
     finally:
         if driver is not None:
@@ -88,67 +96,77 @@ def _ejecutar_validacion(job_id: int):
     """Validación masiva (dry-run): lee el estado del portal por API y lo compara
     con el estado local. No modifica nada."""
     try:
-        BulkSyncJob.objects.filter(pk=job_id).update(estado=BulkSyncJob.CORRIENDO)
+        BulkSyncJob.objects.filter(pk=job_id).update(
+            estado=BulkSyncJob.CORRIENDO, actualizado=timezone.now()
+        )
         items = list(
             BulkSyncItem.objects.filter(job_id=job_id).values_list('pk', 'televisor_id')
         )
-        client = PortalClient()
-
         ok = 0
         err = 0
         cancelado = False
-        for procesados, (item_pk, tv_id) in enumerate(items, start=1):
-            if BulkSyncJob.objects.filter(
-                pk=job_id, cancelar_solicitado=True
-            ).exists():
-                cancelado = True
-                break
+        # Un solo proveedor para todo el lote: en modo portal eso es UN navegador
+        # y UN login para todos los televisores, en vez de uno por equipo.
+        with sesion_proveedor() as prov:
+            for procesados, (item_pk, tv_id) in enumerate(items, start=1):
+                if BulkSyncJob.objects.filter(
+                    pk=job_id, cancelar_solicitado=True
+                ).exists():
+                    cancelado = True
+                    break
 
-            try:
-                tv = Televisor.objects.get(pk=tv_id)
-                data = client.get_status(tv.eui64_portal)
-                remoto = data['lockStatus'] == 1
-                local = bool(tv.inhabilitado)
-                coincide = remoto == local
-                estado_item = BulkSyncItem.OK if coincide else BulkSyncItem.ERROR
-                txt = 'Inhabilitado' if remoto else 'Habilitado'
-                txt_local = 'Inhabilitado' if local else 'Habilitado'
-                mensaje = (
-                    f'Coinciden ({txt}).'
-                    if coincide
-                    else f'Portal: {txt} | App: {txt_local}. Conviene sincronizar.'
-                )
-                BulkSyncItem.objects.filter(pk=item_pk).update(
-                    estado=estado_item,
-                    mensaje=mensaje,
-                    remoto_inhabilitado=remoto,
-                    local_inhabilitado=local,
-                    coincide=coincide,
-                )
-                ok += 1 if coincide else 0
-                err += 0 if coincide else 1
-            except PortalError as e:
-                BulkSyncItem.objects.filter(pk=item_pk).update(
-                    estado=BulkSyncItem.ERROR, mensaje=str(e)[:500]
-                )
-                err += 1
-            except Exception as e:  # noqa: BLE001
-                BulkSyncItem.objects.filter(pk=item_pk).update(
-                    estado=BulkSyncItem.ERROR, mensaje=f'{type(e).__name__}: {e}'[:500]
-                )
-                err += 1
+                try:
+                    tv = Televisor.objects.get(pk=tv_id)
+                    data = prov.get_status(tv)
+                    remoto = data['lockStatus'] == 1
+                    local = bool(tv.inhabilitado)
+                    coincide = remoto == local
+                    estado_item = BulkSyncItem.OK if coincide else BulkSyncItem.ERROR
+                    txt = 'Inhabilitado' if remoto else 'Habilitado'
+                    txt_local = 'Inhabilitado' if local else 'Habilitado'
+                    mensaje = (
+                        f'Coinciden ({txt}).'
+                        if coincide
+                        else f'Portal: {txt} | App: {txt_local}. Conviene sincronizar.'
+                    )
+                    BulkSyncItem.objects.filter(pk=item_pk).update(
+                        estado=estado_item,
+                        mensaje=mensaje,
+                        remoto_inhabilitado=remoto,
+                        local_inhabilitado=local,
+                        coincide=coincide,
+                    )
+                    ok += 1 if coincide else 0
+                    err += 0 if coincide else 1
+                except PortalError as e:
+                    BulkSyncItem.objects.filter(pk=item_pk).update(
+                        estado=BulkSyncItem.ERROR, mensaje=str(e)[:500]
+                    )
+                    err += 1
+                except Exception as e:  # noqa: BLE001
+                    BulkSyncItem.objects.filter(pk=item_pk).update(
+                        estado=BulkSyncItem.ERROR,
+                        mensaje=f'{type(e).__name__}: {e}'[:500],
+                    )
+                    err += 1
 
-            BulkSyncJob.objects.filter(pk=job_id).update(
-                procesados=procesados, ok_count=ok, error_count=err
-            )
+                BulkSyncJob.objects.filter(pk=job_id).update(
+                    procesados=procesados,
+                    ok_count=ok,
+                    error_count=err,
+                    actualizado=timezone.now(),
+                )
 
         BulkSyncJob.objects.filter(pk=job_id).update(
             estado=BulkSyncJob.CANCELADO if cancelado else BulkSyncJob.TERMINADO,
             terminado_en=timezone.now(),
+            actualizado=timezone.now(),
         )
     except Exception as e:  # noqa: BLE001
         BulkSyncJob.objects.filter(pk=job_id).update(
-            estado=BulkSyncJob.ERROR, terminado_en=timezone.now()
+            estado=BulkSyncJob.ERROR,
+            terminado_en=timezone.now(),
+            actualizado=timezone.now(),
         )
         print(f'[validacion] error: {e}')
     finally:

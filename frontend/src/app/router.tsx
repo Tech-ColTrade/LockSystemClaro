@@ -16,6 +16,7 @@ import { TelevisorFormPage } from '@/features/televisores/pages/TelevisorFormPag
 import { TelevisorImportPage } from '@/features/televisores/pages/TelevisorImportPage'
 import { TelevisorDetailPage } from '@/features/televisores/pages/TelevisorDetailPage'
 import { TelevisorEstadoPage } from '@/features/televisores/pages/TelevisorEstadoPage'
+import { JobsEnCursoPage } from '@/features/televisores/pages/JobsEnCursoPage'
 import { TelevisorSincronizacionesPage } from '@/features/televisores/pages/TelevisorSincronizacionesPage'
 import { TelevisorPincodesUsadosPage } from '@/features/televisores/pages/TelevisorPincodesUsadosPage'
 import { EnrolarEstadoPage } from '@/features/televisores/pages/EnrolarEstadoPage'
@@ -51,6 +52,13 @@ export const router = createBrowserRouter([
             path: '/televisores',
             element: <TelevisoresPage />,
             handle: { breadcrumb: 'Televisores' },
+          },
+          {
+            // Antes que '/televisores/:id' para que "en-curso" no se tome por
+            // el id de un televisor.
+            path: '/televisores/en-curso',
+            element: <JobsEnCursoPage />,
+            handle: { breadcrumb: 'Televisores / En curso' },
           },
           {
             path: '/televisores/:id',

@@ -143,3 +143,41 @@ export interface ImportResult {
   actualizados: number
   errores: string[]
 }
+
+// --- Sincronizaciones en curso (panel "en curso") ---
+// `vivo` = el job sigue latiendo. Si es false, su hilo murió (reinicio del
+// servidor) y lo que procede es descartarlo, no esperarlo.
+export interface JobIndividualActivo {
+  job: number
+  televisor_id: number
+  mac_address: string
+  serial_number: string
+  inhabilitar: boolean
+  estado: 'pendiente' | 'corriendo'
+  porcentaje: number
+  creado: string
+  actualizado: string
+  vivo: boolean
+  usuario: string
+}
+
+export interface JobLoteActivo {
+  job: number
+  modo: 'sync' | 'validacion'
+  estado: 'pendiente' | 'corriendo'
+  total: number
+  procesados: number
+  ok_count: number
+  error_count: number
+  porcentaje: number
+  cancelar_solicitado: boolean
+  creado: string
+  actualizado: string
+  vivo: boolean
+  usuario: string
+}
+
+export interface JobsActivos {
+  individuales: JobIndividualActivo[]
+  lotes: JobLoteActivo[]
+}
