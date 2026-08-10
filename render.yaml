@@ -39,6 +39,13 @@ services:
       - key: DATABASE_URL
         sync: false
 
+      # La instancia de Postgres la comparte la app antigua (whaletv), que vive
+      # en el esquema `public`. Esta app usa el suyo para no pisarla. El esquema
+      # debe existir antes del primer deploy:
+      #   CREATE SCHEMA IF NOT EXISTS "LockClaro";
+      - key: DB_SCHEMA
+        value: LockClaro
+
       # Origen del frontend, para la allowlist de CORS.
       # Ej: https://lockingsystem-web.onrender.com
       - key: CORS_ALLOWED_ORIGINS

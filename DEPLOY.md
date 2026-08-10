@@ -47,6 +47,7 @@ que navegador y driver tengan versiones compatibles.
 | `SECRET_KEY`                  | Genérala en Render (*Generate*)                               |
 | `JWT_SIGNING_KEY`             | Genérala en Render (*Generate*)                               |
 | `DATABASE_URL`                | La **Internal Database URL** de tu Postgres                   |
+| `DB_SCHEMA`                   | `LockClaro` — esquema propio dentro de esa base               |
 | `CORS_ALLOWED_ORIGINS`        | URL del frontend, ej. `https://lockingsystem-web.onrender.com` |
 | `CORS_ALLOW_ALL_ORIGINS`      | `False`                                                       |
 | `WHALETV_LOCK_API_ACCESS_KEY` | (secreto)                                                     |
@@ -60,6 +61,20 @@ añade solo el dominio que Render publica en `RENDER_EXTERNAL_HOSTNAME`.
 > **Usa la Internal Database URL**, no la externa. No sale a internet, es más
 > rápida y no consume ancho de banda facturable. Requiere que el servicio esté
 > en la misma región que la base de datos.
+
+> **Esquema propio.** La instancia de Postgres la comparte la aplicación
+> anterior (`whaletv`), cuyas tablas viven en `public`. Con `DB_SCHEMA` se fija
+> el `search_path` de la conexión y esta app crea y consulta las suyas en
+> `LockClaro`, sin tocar las otras. El esquema debe existir **antes** del primer
+> `migrate`:
+>
+> ```sql
+> CREATE SCHEMA IF NOT EXISTS "LockClaro";
+> ```
+>
+> Si se omite `DB_SCHEMA`, Django cae en `public` y se mezclaría con las tablas
+> antiguas. Las comillas importan: sin ellas Postgres pliega el nombre a
+> minúsculas.
 
 **Arranque.** [`entrypoint.sh`](backend/entrypoint.sh) ejecuta `migrate` y
 `collectstatic` antes de levantar Gunicorn. Se hace en runtime y no en el build
