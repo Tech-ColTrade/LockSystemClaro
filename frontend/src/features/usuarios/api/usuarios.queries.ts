@@ -46,6 +46,18 @@ export function useCreateUsuario() {
   })
 }
 
+/**
+ * Cierre forzado de la sesión de un usuario (solo admin). Invalida las listas
+ * para que la columna de sesión refleje el cambio de inmediato.
+ */
+export function useCerrarSesionUsuario() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => usuariosApi.cerrarSesion(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: usuarioKeys.all }),
+  })
+}
+
 export function useUpdateUsuario(id: string) {
   const qc = useQueryClient()
   return useMutation({

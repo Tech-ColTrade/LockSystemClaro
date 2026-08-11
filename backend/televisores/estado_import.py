@@ -1,12 +1,17 @@
 """Enrolar Estado: importar estados (habilitado/inhabilitado) masivamente.
 
 Columnas reconocidas (encabezado, insensible a mayúsculas):
-    - mac_address    (obligatoria)
+    - serial_number  (obligatoria)
     - estado         (obligatoria: habilitado/inhabilitado y sinónimos)
-    - serial_number  (opcional)
 
-Fija el estado LOCAL de cada televisor (creándolo si no existe) y devuelve la
-lista de televisores cuyo estado cambió, para sincronizarlos con el portal.
+Fija el estado LOCAL de cada televisor y devuelve la lista de aquellos cuyo
+estado cambió, para sincronizarlos con el portal.
+
+**Solo actualiza; no crea televisores.** Un televisor necesita su MAC —es su
+identificador único y de ella se deriva el EUI-64 con el que se le habla al
+portal—, y por serial no hay forma de averiguarla. Los seriales que no existan
+se reportan en `errores` sin frenar al resto; hay que enrolarlos antes desde
+"Enrolar Televisores".
 """
 from __future__ import annotations
 
@@ -27,7 +32,6 @@ _HABILITADO = {
     'no', 'false', '0', 'n',
 }
 
-_COL_MAC = {'mac_address', 'mac', 'mac_address', 'direccion_mac', 'dirección_mac'}
 _COL_ESTADO = {'estado', 'status', 'lock', 'lock_status', 'inhabilitado', 'bloqueo'}
 _COL_SERIAL = {'serial_number', 'serial', 'sn', 'numero_de_serie', 'número_de_serie'}
 
@@ -46,9 +50,7 @@ def _mapear_columnas(headers: list[str]) -> dict:
     mapa = {}
     for i, h in enumerate(headers):
         clave = (h or '').strip().lower().replace(' ', '_')
-        if clave in _COL_MAC:
-            mapa['mac'] = i
-        elif clave in _COL_ESTADO:
+        if clave in _COL_ESTADO:
             mapa['estado'] = i
         elif clave in _COL_SERIAL:
             mapa['serial'] = i
@@ -172,9 +174,9 @@ def procesar_enrolar_estado(nombre: str, data: bytes) -> dict:
         return {'creados': 0, 'actualizados': 0, 'errores': ['El archivo está vacío.'], 'cambiados': []}
 
     mapa = _mapear_columnas(filas[0])
-    faltan = [c for c in ('mac', 'estado') if c not in mapa]
+    faltan = [c for c in ('serial', 'estado') if c not in mapa]
     if faltan:
-        nombres = {'mac': 'mac_address', 'estado': 'estado'}
+        nombres = {'serial': 'serial_number', 'estado': 'estado'}
         return {
             'creados': 0,
             'actualizados': 0,
@@ -184,72 +186,75 @@ def procesar_enrolar_estado(nombre: str, data: bytes) -> dict:
 
     errores: list[str] = []
     orden: list[str] = []
-    deseado: dict[str, dict] = {}
+    deseado: dict[str, bool] = {}
 
     def celda(fila, i):
         return fila[i].strip() if i is not None and i < len(fila) else ''
 
     for n, fila in enumerate(filas[1:], start=2):
-        mac = celda(fila, mapa['mac']).upper()
+        serial = celda(fila, mapa['serial'])
+        if not serial:
+            continue
         estado = _parse_estado(celda(fila, mapa['estado']))
-        serial = celda(fila, mapa.get('serial'))
-        if not mac:
-            continue
         if estado is None:
-            errores.append(f'Fila {n} ({mac}): estado inválido (usa "habilitado" o "inhabilitado").')
+            errores.append(
+                f'Fila {n} ({serial}): estado inválido (usa "habilitado" o "inhabilitado").'
+            )
             continue
-        if mac not in deseado:
-            orden.append(mac)
-        deseado[mac] = {'mac': mac, 'estado': estado, 'serial': serial or deseado.get(mac, {}).get('serial', '')}
+        if serial in deseado:
+            # Serial repetido en el archivo: gana la primera fila, para que el
+            # resultado no dependa del orden de lectura.
+            if deseado[serial] != estado:
+                errores.append(
+                    f'Fila {n} ({serial}): repetido con un estado distinto; se ignora.'
+                )
+            continue
+        orden.append(serial)
+        deseado[serial] = estado
 
     if not orden:
-        return {'creados': 0, 'actualizados': 0, 'errores': errores or ['No hay filas válidas.'], 'cambiados': []}
+        return {
+            'creados': 0,
+            'actualizados': 0,
+            'errores': errores or ['No hay filas válidas.'],
+            'cambiados': [],
+        }
 
-    existentes = {
-        tv.mac_address.upper(): tv
-        for tv in Televisor.objects.filter(mac_address__in=[deseado[k]['mac'] for k in orden])
-    }
+    # Direccionado por serial. `setdefault`: si la base tuviera dos televisores
+    # con el mismo serial (la columna no es única), gana el primero.
+    existentes: dict[str, Televisor] = {}
+    for tv in Televisor.objects.filter(serial_number__in=orden):
+        existentes.setdefault(tv.serial_number, tv)
 
     cambiados: list[Televisor] = []
-    nuevos: list[Televisor] = []
     actualizar: list[Televisor] = []
 
-    for k in orden:
-        d = deseado[k]
-        tv = existentes.get(k)
+    for serial in orden:
+        tv = existentes.get(serial)
         if tv is None:
-            tv = Televisor(mac_address=d['mac'], serial_number=d['serial'])
-            nuevos.append(tv)
-        else:
-            if d['serial'] and tv.serial_number != d['serial']:
-                tv.serial_number = d['serial']
-            actualizar.append(tv)
-
-        if tv.inhabilitado != d['estado']:
-            cambiados.append(tv)
-        tv.inhabilitado = d['estado']
-
-    # bulk_create/bulk_update no llaman a save(), así que la normalización que
-    # hace Televisor.save() se aplica aquí a mano.
-    for tv in (*nuevos, *actualizar):
-        tv.mac_address = tv.mac_address.strip().upper()
-        tv.serial_number = (tv.serial_number or '').strip()
-
-    # Dos escrituras por lotes en vez de un save() por fila: contra una base de
-    # datos remota, el round-trip por fila era el cuello de botella.
-    with transaction.atomic():
-        if nuevos:
-            Televisor.objects.bulk_create(nuevos, batch_size=500)
-        if actualizar:
-            Televisor.objects.bulk_update(
-                actualizar, ['serial_number', 'inhabilitado'], batch_size=500
+            # Sin MAC no se puede crear ni sincronizar: ver la nota del módulo.
+            errores.append(
+                f'{serial}: no existe un televisor con ese serial. '
+                'Enrólalo primero en "Enrolar Televisores".'
             )
+            continue
+        estado = deseado[serial]
+        if tv.inhabilitado != estado:
+            cambiados.append(tv)
+        tv.inhabilitado = estado
+        actualizar.append(tv)
 
-    creados = len(nuevos)
-    actualizados = len(actualizar)
+    # Una escritura por lotes en vez de un save() por fila: contra una base de
+    # datos remota, el round-trip por fila era el cuello de botella.
+    if actualizar:
+        with transaction.atomic():
+            Televisor.objects.bulk_update(actualizar, ['inhabilitado'], batch_size=500)
+
     return {
-        'creados': creados,
-        'actualizados': actualizados,
+        # Este flujo ya no crea televisores; se mantiene la clave para no
+        # romper a quien lea el resumen (la interfaz muestra el contador).
+        'creados': 0,
+        'actualizados': len(actualizar),
         'errores': errores,
         'cambiados': cambiados,
     }

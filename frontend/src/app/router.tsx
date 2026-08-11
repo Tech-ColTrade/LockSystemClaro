@@ -11,6 +11,8 @@ import { ProtectedRoute } from '@/features/auth/components/ProtectedRoute'
 import { RequireRole } from '@/features/auth/components/RequireRole'
 import { canOperate, isAdmin } from '@/features/auth/permissions'
 import { LoginPage } from '@/features/auth/pages/LoginPage'
+import { ForgotPasswordPage } from '@/features/auth/pages/ForgotPasswordPage'
+import { ResetPasswordPage } from '@/features/auth/pages/ResetPasswordPage'
 import { TelevisoresPage } from '@/features/televisores/pages/TelevisoresPage'
 import { TelevisorFormPage } from '@/features/televisores/pages/TelevisorFormPage'
 import { TelevisorImportPage } from '@/features/televisores/pages/TelevisorImportPage'
@@ -29,6 +31,11 @@ import { DashboardLayout } from '@/shared/layout/DashboardLayout'
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
+  // Recuperación de contraseña: públicas por definición (quien las usa no
+  // puede iniciar sesión). La ruta de restablecimiento recibe el token del
+  // correo en ?token= y lo valida contra el backend antes de pedir nada.
+  { path: '/recuperar-password', element: <ForgotPasswordPage /> },
+  { path: '/restablecer-password', element: <ResetPasswordPage /> },
   {
     element: <ProtectedRoute />,
     children: [

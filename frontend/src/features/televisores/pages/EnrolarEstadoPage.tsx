@@ -41,10 +41,11 @@ import {
 } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
 
+// El archivo se direcciona por SERIAL. No se pide la MAC: el televisor ya está
+// enrolado y se localiza por su serial.
 const COLUMNAS = [
-  { columna: 'mac_address', ejemplo: 'B4:04:29:7E:3A:AA', obligatoria: true },
+  { columna: 'serial_number', ejemplo: 'B4:04:29:7E:3A:AA', obligatoria: true },
   { columna: 'estado', ejemplo: 'habilitado / inhabilitado', obligatoria: true },
-  { columna: 'serial_number', ejemplo: 'B4:04:29:7E:3A:AA', obligatoria: false },
 ]
 
 type Tone = 'emerald' | 'primary' | 'violet' | 'destructive' | 'muted'
@@ -252,8 +253,9 @@ export function EnrolarEstadoPage() {
             <CardDescription>Resumen del último archivo procesado.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <Stat label="Creados" value={resumen.creados} icon={CircleCheck} tone="emerald" />
+            {/* Sin "Creados": este flujo solo actualiza televisores ya
+                enrolados — un serial desconocido va a la lista de errores. */}
+            <div className="grid gap-3 sm:grid-cols-3">
               <Stat
                 label="Actualizados"
                 value={resumen.actualizados}
@@ -414,6 +416,7 @@ export function EnrolarEstadoPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead>Serial</TableHead>
                       <TableHead>MAC</TableHead>
                       <TableHead>Objetivo</TableHead>
                       <TableHead>Resultado</TableHead>
@@ -423,6 +426,9 @@ export function EnrolarEstadoPage() {
                     {bulk.items.map((it) => (
                       <TableRow key={it.id}>
                         <TableCell className="font-mono text-foreground">
+                          {it.serial_number || '—'}
+                        </TableCell>
+                        <TableCell className="font-mono text-muted-foreground">
                           {it.mac_address}
                         </TableCell>
                         <TableCell>
@@ -446,9 +452,10 @@ export function EnrolarEstadoPage() {
         <CardHeader className="border-b pb-4">
           <CardTitle>Subir archivo</CardTitle>
           <CardDescription>
-            Sube un <b>Excel (.xlsx)</b> o <b>CSV</b> con el estado de cada televisor. Se
-            fija el estado y, para los que cambian, se sincroniza el portal remoto
-            automáticamente.
+            Sube un <b>Excel (.xlsx)</b> o <b>CSV</b> con el <b>serial</b> y el estado de
+            cada televisor. Se fija el estado y, para los que cambian, se sincroniza el
+            portal remoto automáticamente. Los televisores deben estar enrolados: un
+            serial desconocido se reporta como error.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-5">

@@ -68,11 +68,19 @@ class SyncJobSerializer(serializers.ModelSerializer):
 
 
 class BulkSyncItemSerializer(serializers.ModelSerializer):
+    # El lote se arma a partir de un archivo direccionado por serial, así que
+    # el resultado se lee mejor por serial que por MAC. Sale del televisor
+    # relacionado (el ítem solo guarda la MAC); vacío si el TV fue eliminado.
+    serial_number = serializers.CharField(
+        source='televisor.serial_number', read_only=True, default=''
+    )
+
     class Meta:
         model = BulkSyncItem
         fields = [
             'id',
             'mac_address',
+            'serial_number',
             'inhabilitar',
             'estado',
             'mensaje',

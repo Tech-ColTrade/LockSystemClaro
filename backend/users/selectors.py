@@ -14,7 +14,9 @@ from .models import User
 
 
 def user_list() -> QuerySet[User]:
-    return User.objects.all()
+    # `select_related`: la tabla de usuarios muestra quién tiene sesión abierta,
+    # y sin esto sería una consulta por fila.
+    return User.objects.select_related('sesion_activa')
 
 
 def user_get(*, user_id: UUID | str) -> User | None:

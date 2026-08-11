@@ -1,7 +1,20 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, CircleAlert, Eye, EyeOff, Plus } from 'lucide-react'
-import { useUsuarios } from '@/features/usuarios/api/usuarios.queries'
+import {
+  ChevronLeft,
+  ChevronRight,
+  CircleAlert,
+  Eye,
+  EyeOff,
+  Loader2,
+  LogOut,
+  Plus,
+} from 'lucide-react'
+import { useAuth } from '@/features/auth/context/auth-context'
+import {
+  useCerrarSesionUsuario,
+  useUsuarios,
+} from '@/features/usuarios/api/usuarios.queries'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -20,16 +33,34 @@ import {
 const PAGE_SIZE = 10
 
 export function UsuariosPage() {
+  const { user: yo } = useAuth()
   const [page, setPage] = useState(1)
   const [query, setQuery] = useState('')
   const [search, setSearch] = useState('')
   // Los inactivos se ocultan por defecto; "Ver inactivos" los trae de vuelta.
   const [verInactivos, setVerInactivos] = useState(false)
   const listQuery = useUsuarios(search, page, !verInactivos)
+  const cerrarSesion = useCerrarSesionUsuario()
+  // Id de la fila cuya sesión se está cerrando, para el spinner del botón.
+  const [cerrandoId, setCerrandoId] = useState<string | null>(null)
+  const [avisoCierre, setAvisoCierre] = useState<string | null>(null)
   const items = listQuery.data?.results ?? []
   const count = listQuery.data?.count ?? 0
   const loading = listQuery.isLoading
   const error = listQuery.error ? (listQuery.error as Error).message : null
+
+  async function onCerrarSesion(id: string, email: string) {
+    setAvisoCierre(null)
+    setCerrandoId(id)
+    try {
+      const res = await cerrarSesion.mutateAsync(id)
+      setAvisoCierre(`${email}: ${res.detail}`)
+    } catch {
+      setAvisoCierre(`No se pudo cerrar la sesión de ${email}.`)
+    } finally {
+      setCerrandoId(null)
+    }
+  }
 
   function onSearch(e: React.FormEvent) {
     e.preventDefault()
@@ -87,6 +118,13 @@ export function UsuariosPage() {
         </Alert>
       )}
 
+      {avisoCierre && (
+        <Alert className="mb-4">
+          <LogOut />
+          <AlertDescription>{avisoCierre}</AlertDescription>
+        </Alert>
+      )}
+
       <Card className="gap-0 overflow-hidden p-0">
         <Table>
           <TableHeader>
@@ -95,6 +133,7 @@ export function UsuariosPage() {
               <TableHead>Nombre</TableHead>
               <TableHead>Rol</TableHead>
               <TableHead>Estado</TableHead>
+              <TableHead>Sesión</TableHead>
               <TableHead className="text-right">Acciones</TableHead>
             </TableRow>
           </TableHeader>
@@ -102,7 +141,7 @@ export function UsuariosPage() {
             {loading ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <TableRow key={i}>
-                  {Array.from({ length: 5 }).map((__, j) => (
+                  {Array.from({ length: 6 }).map((__, j) => (
                     <TableCell key={j}>
                       <Skeleton className="h-4 w-full max-w-32" />
                     </TableCell>
@@ -112,7 +151,7 @@ export function UsuariosPage() {
             ) : items.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={5}
+                  colSpan={6}
                   className="h-24 text-center text-muted-foreground"
                 >
                   No se encontraron usuarios.
@@ -139,14 +178,46 @@ export function UsuariosPage() {
                       </Badge>
                     )}
                   </TableCell>
+                  <TableCell>
+                    {u.sesion ? (
+                      <span
+                        className="text-sm text-foreground"
+                        title={`Desde ${u.sesion.ip ?? 'IP desconocida'}`}
+                      >
+                        {u.sesion.dispositivo}
+                      </span>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
                   <TableCell className="text-right">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      render={<Link to={`/usuarios/${u.id}/editar`} />}
-                    >
-                      Editar
-                    </Button>
+                    <div className="flex justify-end gap-2">
+                      {/* Solo tiene sentido con sesión abierta. Sobre uno mismo
+                          no: cerraría la sesión desde la que se está pulsando. */}
+                      {u.sesion && u.id !== yo?.id && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={cerrandoId === u.id}
+                          onClick={() => onCerrarSesion(u.id, u.email)}
+                          title={`Cerrar la sesión de ${u.email} en ${u.sesion.dispositivo}`}
+                        >
+                          {cerrandoId === u.id ? (
+                            <Loader2 className="animate-spin" />
+                          ) : (
+                            <LogOut />
+                          )}
+                          Cerrar sesión
+                        </Button>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        render={<Link to={`/usuarios/${u.id}/editar`} />}
+                      >
+                        Editar
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))

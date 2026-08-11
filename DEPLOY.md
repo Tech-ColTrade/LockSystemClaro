@@ -50,6 +50,12 @@ que navegador y driver tengan versiones compatibles.
 | `DB_SCHEMA`                   | `LockClaro` — esquema propio dentro de esa base               |
 | `CORS_ALLOWED_ORIGINS`        | URL del frontend, ej. `https://lockingsystem-web.onrender.com` |
 | `CORS_ALLOW_ALL_ORIGINS`      | `False`                                                       |
+| `FRONTEND_URL`                | URL del frontend — arma el enlace del correo de recuperación   |
+| `SESSION_INACTIVITY_MINUTOS`  | `15` — minutos sin actividad antes de cerrar la sesión         |
+| `GMAIL_CLIENT_ID`             | (secreto) OAuth de la cuenta remitente                        |
+| `GMAIL_CLIENT_SECRET`         | (secreto)                                                     |
+| `GMAIL_REFRESH_TOKEN`         | (secreto) con scope `gmail.send`                              |
+| `GMAIL_FROM`                  | Cuenta remitente, la misma que autorizó el refresh token      |
 | `WHALETV_LOCK_API_ACCESS_KEY` | (secreto)                                                     |
 | `WHALETV_LOCK_API_SECRET_KEY` | (secreto)                                                     |
 | `WHALETV_PORTAL_EMAIL`        | (secreto)                                                     |
@@ -75,6 +81,35 @@ añade solo el dominio que Render publica en `RENDER_EXTERNAL_HOSTNAME`.
 > Si se omite `DB_SCHEMA`, Django cae en `public` y se mezclaría con las tablas
 > antiguas. Las comillas importan: sin ellas Postgres pliega el nombre a
 > minúsculas.
+
+> **Correo y recuperación de contraseña.** El enlace que recibe el usuario se
+> arma con `FRONTEND_URL`, así que debe apuntar al sitio estático, no al
+> backend. El envío usa la API de Gmail con OAuth2
+> ([`common/email_backend.py`](backend/common/email_backend.py)); el refresh
+> token necesita el scope `gmail.send` — con `mail.google.com` también
+> funcionaría, pero da acceso de lectura a todo el buzón y no hace falta. Sin
+> las cuatro variables `GMAIL_*`, el arranque falla a propósito. En local, sin
+> ellas, los correos se imprimen en la consola del `runserver`.
+>
+> El enlace vive `PASSWORD_RESET_MINUTOS` (10 por defecto) y es de un solo uso.
+
+> **Sesión única.** Una cuenta solo puede tener una sesión abierta a la vez. Si
+> alguien ya entró desde Chrome, otro navegador recibe un `409` al iniciar
+> sesión y la sesión en curso no se interrumpe. Para desbloquear hay tres vías:
+> cerrar sesión en el equipo original, esperar a que caduque por inactividad, o
+> que un administrador la cierre desde **Usuarios** (también desde el admin de
+> Django, borrando la fila en *Sesiones activas*). No hay variable de entorno:
+> es una regla de negocio, no un ajuste.
+
+> **Sesión por inactividad.** `SESSION_INACTIVITY_MINUTOS` (15 por defecto)
+> acepta cualquier entero de minutos: 1, 2, 15, 20, 30… De ese valor se derivan
+> las vidas de los JWT — el refresh token dura exactamente la ventana y el
+> access un tercio (tope 5 min) — así que **el corte lo impone el servidor**, no
+> solo el temporizador del navegador: copiar el refresh token de otro equipo no
+> sirve pasada la ventana. El frontend lee el valor de `/api/config/` al
+> arrancar, de modo que cambiarlo es reiniciar el backend, sin recompilar el
+> sitio estático. Mientras el usuario interactúa, el cliente renueva el token y
+> la ventana se reinicia sola.
 
 **Arranque.** [`entrypoint.sh`](backend/entrypoint.sh) ejecuta `migrate` y
 `collectstatic` antes de levantar Gunicorn. Se hace en runtime y no en el build

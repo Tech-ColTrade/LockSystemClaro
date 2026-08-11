@@ -8,8 +8,12 @@ Decisiones clave (best practices para aplicaciones de larga vida):
 """
 from __future__ import annotations
 
+import hashlib
+import secrets
 import uuid
+from datetime import timedelta
 
+from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.db import models
 from django.utils import timezone
@@ -133,3 +137,194 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def get_short_name(self) -> str:
         return self.first_name or self.email
+
+
+class SesionActiva(models.Model):
+    """La única sesión que puede tener abierta un usuario a la vez.
+
+    Regla de negocio: una cuenta = una sesión. Si alguien ya entró desde Chrome,
+    no puede entrar desde otro navegador ni desde otro equipo hasta que cierre
+    sesión o hasta que la suya caduque por inactividad.
+
+    Cómo se ata un JWT a esta fila: los tokens llevan el claim `sid` con el
+    identificador de aquí. La autenticación compara ambos, así que en cuanto
+    esta fila cambia o desaparece, los tokens emitidos para la sesión anterior
+    dejan de servir — sin depender de listas negras.
+
+    `OneToOne`: la unicidad la garantiza la base de datos, no el código. Dos
+    peticiones de login en paralelo no pueden crear dos sesiones.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='sesion_activa',
+        verbose_name=_('usuario'),
+    )
+    creada = models.DateTimeField(_('iniciada'), auto_now_add=True)
+    # Se actualiza en cada renovación de token: es el latido que mantiene viva
+    # la sesión. Si deja de latir el tiempo de la ventana, la sesión caduca y
+    # otro navegador puede volver a entrar.
+    ultima_actividad = models.DateTimeField(_('última actividad'), auto_now=True)
+
+    # Contexto para poder decirle al usuario dónde tiene la sesión abierta.
+    ip = models.GenericIPAddressField(_('IP'), null=True, blank=True)
+    user_agent = models.TextField(_('navegador'), blank=True)
+
+    class Meta:
+        verbose_name = _('sesión activa')
+        verbose_name_plural = _('sesiones activas')
+        ordering = ['-ultima_actividad']
+
+    def __str__(self) -> str:
+        return f'{self.user.email} · {self.descripcion_dispositivo}'
+
+    @property
+    def vencida(self) -> bool:
+        """True si lleva más de la ventana de inactividad sin dar señales."""
+        limite = timedelta(minutes=settings.SESSION_INACTIVITY_MINUTOS)
+        return timezone.now() - self.ultima_actividad > limite
+
+    @property
+    def descripcion_dispositivo(self) -> str:
+        """Texto corto tipo 'Chrome en Windows' para el mensaje de error."""
+        return describir_user_agent(self.user_agent)
+
+
+# Fragmentos de User-Agent -> nombre legible. El orden importa: Edge y Opera
+# incluyen "Chrome" en su cadena, y Chrome incluye "Safari".
+_NAVEGADORES = (
+    ('Edg/', 'Edge'),
+    ('OPR/', 'Opera'),
+    ('Firefox/', 'Firefox'),
+    ('Chrome/', 'Chrome'),
+    ('Safari/', 'Safari'),
+)
+
+_SISTEMAS = (
+    ('Windows', 'Windows'),
+    ('Android', 'Android'),
+    ('iPhone', 'iPhone'),
+    ('iPad', 'iPad'),
+    ('Mac OS X', 'macOS'),
+    ('Linux', 'Linux'),
+)
+
+
+def describir_user_agent(user_agent: str) -> str:
+    """'Chrome en Windows' a partir de la cadena User-Agent.
+
+    A ojo y sin librerías: solo alimenta un mensaje de ayuda ("ya tienes sesión
+    abierta en…"), así que acertar el 95% de los casos basta y no justifica una
+    dependencia nueva.
+    """
+    if not user_agent:
+        return 'otro dispositivo'
+
+    navegador = next(
+        (nombre for marca, nombre in _NAVEGADORES if marca in user_agent), ''
+    )
+    sistema = next(
+        (nombre for marca, nombre in _SISTEMAS if marca in user_agent), ''
+    )
+
+    if navegador and sistema:
+        return f'{navegador} en {sistema}'
+    return navegador or sistema or 'otro dispositivo'
+
+
+class PasswordResetToken(models.Model):
+    """Enlace de un solo uso para restablecer la contraseña olvidada.
+
+    Decisiones de seguridad:
+
+    - **Solo se guarda el hash.** El token viaja en la URL del correo; en la base
+      queda su SHA-256. Si alguien lee la tabla no puede reconstruir enlaces
+      válidos. Es el mismo criterio que ya usa `integracion.ApiKey`.
+    - **SHA-256 y no un hasher lento** (Argon2/PBKDF2): el token son 256 bits
+      aleatorios, no una contraseña adivinable; no hay nada que ralentizar, y sí
+      hace falta poder buscarlo por índice.
+    - **Un solo uso.** `usado_en` se sella al restablecer; un enlace reutilizado
+      se rechaza aunque no haya vencido.
+    - **Vigencia corta** (`settings.PASSWORD_RESET_MINUTOS`, 10 por defecto).
+    - Al emitir uno nuevo se invalidan los anteriores del mismo usuario, para que
+      pedir el correo dos veces no deje dos enlaces vivos.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='password_reset_tokens',
+        verbose_name=_('usuario'),
+    )
+    token_hash = models.CharField(
+        _('hash del token'), max_length=64, unique=True, editable=False,
+    )
+    creado = models.DateTimeField(_('creado'), auto_now_add=True)
+    expira_en = models.DateTimeField(_('expira en'))
+    usado_en = models.DateTimeField(_('usado en'), null=True, blank=True)
+
+    # Auditoría: desde dónde se pidió y desde dónde se usó. Sirve para investigar
+    # un restablecimiento sospechoso.
+    ip_solicitud = models.GenericIPAddressField(
+        _('IP de la solicitud'), null=True, blank=True,
+    )
+    ip_uso = models.GenericIPAddressField(_('IP de uso'), null=True, blank=True)
+
+    class Meta:
+        verbose_name = _('token de recuperación')
+        verbose_name_plural = _('tokens de recuperación')
+        ordering = ['-creado']
+        indexes = [models.Index(fields=['user', '-creado'])]
+
+    def __str__(self) -> str:
+        return f'{self.user.email} · {self.creado:%Y-%m-%d %H:%M}'
+
+    # ------------------------------------------------------------------
+    # Emisión y verificación
+    # ------------------------------------------------------------------
+    @staticmethod
+    def hash_de(token: str) -> str:
+        return hashlib.sha256(token.encode()).hexdigest()
+
+    @classmethod
+    def emitir(cls, *, user, ip: str | None = None) -> tuple[PasswordResetToken, str]:
+        """Crea un token nuevo. Devuelve (registro, token_en_claro).
+
+        El token en claro solo existe aquí y en el correo: no vuelve a estar
+        disponible después.
+        """
+        # Invalida los pendientes: si el usuario pidió el correo varias veces,
+        # solo el último enlace debe funcionar.
+        cls.objects.filter(user=user, usado_en__isnull=True).update(
+            usado_en=timezone.now()
+        )
+
+        token = secrets.token_urlsafe(32)
+        registro = cls.objects.create(
+            user=user,
+            token_hash=cls.hash_de(token),
+            expira_en=timezone.now()
+            + timedelta(minutes=settings.PASSWORD_RESET_MINUTOS),
+            ip_solicitud=ip,
+        )
+        return registro, token
+
+    @property
+    def vencido(self) -> bool:
+        return timezone.now() >= self.expira_en
+
+    @property
+    def usado(self) -> bool:
+        return self.usado_en is not None
+
+    @property
+    def es_valido(self) -> bool:
+        return not self.usado and not self.vencido and self.user.is_active
+
+    def marcar_usado(self, *, ip: str | None = None) -> None:
+        self.usado_en = timezone.now()
+        self.ip_uso = ip
+        self.save(update_fields=['usado_en', 'ip_uso'])

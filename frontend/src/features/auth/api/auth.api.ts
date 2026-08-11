@@ -6,7 +6,28 @@ import { apiFetch, refreshSession } from '@/lib/http/client'
 import { tokenStore } from '@/lib/http/tokens'
 import type { AuthTokens, User } from '@/features/auth/types'
 
+/** Parámetros que define el backend (ver /api/config/). */
+export interface AppConfig {
+  session_inactivity_minutes: number
+  password_reset_minutes: number
+}
+
+/** Respuesta de la validación del enlace de recuperación. */
+export interface ResetTokenInfo {
+  valido: true
+  /** Correo parcialmente oculto (`da*****@gmail.com`), para confirmar la cuenta. */
+  email: string
+  expira_en: string
+}
+
+/** Por qué un enlace de recuperación no sirve. */
+export type ResetTokenMotivo = 'invalido' | 'vencido' | 'usado'
+
 export const authApi = {
+  /** Parámetros de configuración del backend. Público, no requiere sesión. */
+  config: (): Promise<AppConfig> =>
+    apiFetch<AppConfig>(config.endpoints.config, { auth: false }),
+
   /** Inicia sesión con email + contraseña y devuelve el perfil del usuario. */
   async login(email: string, password: string): Promise<User> {
     const tokens = await apiFetch<AuthTokens>(config.endpoints.login, {
@@ -52,4 +73,32 @@ export const authApi = {
       tokenStore.clear()
     }
   },
+
+  // --- Recuperación de contraseña (sin sesión) -----------------------------
+
+  /**
+   * Pide el enlace de recuperación. El backend responde igual exista o no la
+   * cuenta, así que esto nunca revela si un correo está registrado.
+   */
+  requestPasswordReset: (email: string): Promise<{ detail: string; expira_minutos: number }> =>
+    apiFetch(config.endpoints.passwordReset, {
+      method: 'POST',
+      auth: false,
+      body: JSON.stringify({ email }),
+    }),
+
+  /** Comprueba el token del enlace antes de mostrar el formulario. */
+  validateResetToken: (token: string): Promise<ResetTokenInfo> =>
+    apiFetch(
+      `${config.endpoints.passwordResetValidate}?token=${encodeURIComponent(token)}`,
+      { auth: false },
+    ),
+
+  /** Fija la nueva contraseña y consume el enlace. */
+  confirmPasswordReset: (token: string, newPassword: string): Promise<{ detail: string }> =>
+    apiFetch(config.endpoints.passwordResetConfirm, {
+      method: 'POST',
+      auth: false,
+      body: JSON.stringify({ token, new_password: newPassword }),
+    }),
 }

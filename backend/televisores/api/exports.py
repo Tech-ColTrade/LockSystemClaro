@@ -210,15 +210,18 @@ def plantilla_televisores() -> HttpResponse:
 
 
 def plantilla_estados() -> HttpResponse:
-    """Plantilla Excel para enrolar estados (habilitado/inhabilitado)."""
+    """Plantilla Excel para enrolar estados (habilitado/inhabilitado).
+
+    Dos columnas: el televisor se direcciona por su **serial**, no por su MAC.
+    """
     wb = Workbook()
     ws = wb.active
     ws.title = 'Estados'
-    ws.append(['mac_address', 'estado', 'serial_number'])
+    ws.append(['serial_number', 'estado'])
     _estilar_encabezado(ws)
-    ws.append(['B4:04:29:7E:3A:AA', 'inhabilitado', 'B4:04:29:7E:3A:AA'])
-    ws.append(['B4:04:29:7E:3A:BB', 'habilitado', 'B4:04:29:7E:3A:BB'])
-    for col, ancho in zip('ABC', (22, 16, 22)):
+    ws.append(['B4:04:29:7E:3A:AA', 'inhabilitado'])
+    ws.append(['B4:04:29:7E:3A:BB', 'habilitado'])
+    for col, ancho in zip('AB', (24, 16)):
         ws.column_dimensions[col].width = ancho
     return _respuesta_xlsx(wb, 'plantilla_estados.xlsx')
 

@@ -3,9 +3,11 @@
 // Decisión de seguridad:
 // - El ACCESS token vive SOLO en memoria (variable de módulo). No se persiste,
 //   así un XSS no puede leerlo desde localStorage tras recargar, y su vida es
-//   corta (15 min en el backend).
+//   corta (un tercio de la ventana de inactividad, con tope de 5 min).
 // - El REFRESH token se persiste en localStorage para mantener la sesión entre
-//   recargas. Es el mínimo imprescindible que se guarda.
+//   recargas. Es el mínimo imprescindible que se guarda. Dura exactamente la
+//   ventana de inactividad: ahí es donde el servidor impone el cierre de sesión
+//   (ver SESSION_INACTIVITY_MINUTOS y features/auth/useInactividad.ts).
 //
 // Nota: la opción más segura sería guardar el refresh en una cookie httpOnly
 // emitida por el backend. Eso requiere cambios en el backend (hoy usa Bearer en

@@ -252,6 +252,10 @@ REST_FRAMEWORK = {
         'user': '1000/hour',
         'login': '5/min',      # obtención de token
         'register': '10/hour',  # alta de cuentas
+        # Recuperación de contraseña: endpoint público que dispara correos. Un
+        # límite bajo evita usarlo para inundar el buzón de alguien o para
+        # sondear qué correos están registrados.
+        'password_reset': '5/hour',
         'integracion': '2000/hour',  # API-key de integración (por clave)
     },
     # En producción se sirve solo JSON; el navegador de la API queda para dev.
@@ -266,12 +270,40 @@ REST_FRAMEWORK = {
 }
 
 # ---------------------------------------------------------------------------
+# Cierre de sesión por inactividad
+# ---------------------------------------------------------------------------
+# Minutos que puede estar el usuario sin interactuar antes de que se le cierre
+# la sesión y vuelva al login. Vale cualquier entero de minutos: 1, 2, 15, 30…
+SESSION_INACTIVITY_MINUTOS = max(
+    1, int(os.getenv('SESSION_INACTIVITY_MINUTOS', '15'))
+)
+
+# La ventana se impone en el SERVIDOR haciendo que el refresh token dure
+# exactamente eso. No basta con un temporizador en el navegador: eso solo
+# esconde la interfaz, y quien copie el refresh token de localStorage seguiría
+# entrando. Como `ROTATE_REFRESH_TOKENS` está activo, cada renovación entrega un
+# refresh nuevo — mientras el usuario esté activo la ventana se reinicia sola, y
+# en cuanto deja de estarlo el token muere solo.
+_REFRESH_LIFETIME = timedelta(minutes=SESSION_INACTIVITY_MINUTOS)
+
+# El access token tiene que vencer bastante antes que el refresh, o el cliente
+# no llegaría a renovar dentro de la ventana. Un tercio deja dos oportunidades
+# de renovación antes del corte; el tope de 5 min mantiene corta la exposición
+# si un access se filtra, y el suelo de 20 s hace que ventanas de 1 minuto
+# sigan funcionando.
+_ACCESS_LIFETIME = max(
+    timedelta(seconds=20),
+    min(timedelta(minutes=5), _REFRESH_LIFETIME / 3),
+)
+
+
+# ---------------------------------------------------------------------------
 # Simple JWT
 # ---------------------------------------------------------------------------
 SIMPLE_JWT = {
-    # Access token de vida corta: reduce la ventana si un token se filtra.
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    # Vidas derivadas de la ventana de inactividad (ver arriba).
+    'ACCESS_TOKEN_LIFETIME': _ACCESS_LIFETIME,
+    'REFRESH_TOKEN_LIFETIME': _REFRESH_LIFETIME,
 
     # Rotación de refresh: cada refresh entrega uno nuevo.
     'ROTATE_REFRESH_TOKENS': True,
@@ -359,6 +391,51 @@ if not DEBUG:
             'Faltan secretos de integración WhaleTV en el entorno: '
             + ', '.join(_faltantes)
         )
+
+
+# ---------------------------------------------------------------------------
+# Correo saliente — Gmail con OAuth2
+# ---------------------------------------------------------------------------
+# Se usa para el enlace de recuperación de contraseña. La implementación está en
+# common/email_backend.py (SMTP + XOAUTH2, sin dependencias extra).
+GMAIL = {
+    'CLIENT_ID': os.getenv('GMAIL_CLIENT_ID', ''),
+    'CLIENT_SECRET': os.getenv('GMAIL_CLIENT_SECRET', ''),
+    'REFRESH_TOKEN': os.getenv('GMAIL_REFRESH_TOKEN', ''),
+    # Cuenta remitente. Debe ser la misma que autorizó el refresh token: Gmail
+    # rechaza autenticarse como una cuenta distinta.
+    'FROM': os.getenv('GMAIL_FROM', ''),
+}
+
+GMAIL_CONFIGURADO = all(GMAIL.values())
+
+if GMAIL_CONFIGURADO:
+    EMAIL_BACKEND = 'common.email_backend.GmailOAuth2EmailBackend'
+elif DEBUG:
+    # Sin credenciales en local, los correos se imprimen en la consola del
+    # runserver: el flujo de recuperación se puede probar copiando el enlace.
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+else:
+    raise ImproperlyConfigured(
+        'Faltan credenciales de Gmail (GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, '
+        'GMAIL_REFRESH_TOKEN, GMAIL_FROM). Sin ellas la recuperación de '
+        'contraseña no puede enviar correos.'
+    )
+
+DEFAULT_FROM_EMAIL = GMAIL['FROM'] or 'no-reply@localhost'
+SERVER_EMAIL = DEFAULT_FROM_EMAIL
+
+# Nombre que aparece en el correo y como remitente legible.
+APP_NOMBRE = os.getenv('APP_NOMBRE', 'Locking System')
+
+# Base pública del frontend: con ella se construye el enlace del correo. En
+# local apunta al dev server de Vite; en Render, a la URL del sitio estático.
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173').rstrip('/')
+
+# Vigencia del enlace de recuperación. Corta a propósito: el enlace llega por
+# correo (un canal que puede quedar abierto en un equipo compartido) y además es
+# de un solo uso — ver users/models.py, PasswordResetToken.
+PASSWORD_RESET_MINUTOS = int(os.getenv('PASSWORD_RESET_MINUTOS', '10'))
 
 
 # ---------------------------------------------------------------------------

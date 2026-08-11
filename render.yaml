@@ -53,6 +53,30 @@ services:
       - key: CORS_ALLOW_ALL_ORIGINS
         value: "False"
 
+      # Base pública del frontend. Con ella se arma el enlace del correo de
+      # recuperación de contraseña; si apunta a otro sitio, el enlace lleva a
+      # una página que no existe. Ej: https://lockingsystem-web.onrender.com
+      - key: FRONTEND_URL
+        sync: false
+
+      # Minutos de inactividad tras los que se cierra la sesión. De ella se
+      # derivan las vidas de los tokens JWT, así que el corte lo impone el
+      # servidor y no solo el navegador.
+      - key: SESSION_INACTIVITY_MINUTOS
+        value: "15"
+
+      # Correo saliente (Gmail con OAuth2). Sin estas cuatro el arranque falla
+      # adrede: la recuperación de contraseña no podría enviar nada.
+      # El refresh token debe tener el scope gmail.send.
+      - key: GMAIL_CLIENT_ID
+        sync: false
+      - key: GMAIL_CLIENT_SECRET
+        sync: false
+      - key: GMAIL_REFRESH_TOKEN
+        sync: false
+      - key: GMAIL_FROM
+        sync: false
+
       # Secretos de integración WhaleTV. Sin ellos el arranque falla adrede
       # (guard en settings.py con DEBUG=False).
       - key: WHALETV_LOCK_API_ACCESS_KEY

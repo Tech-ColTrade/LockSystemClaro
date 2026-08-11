@@ -50,11 +50,41 @@ class ChangePasswordSerializer(serializers.Serializer):
         return value
 
 
+class PasswordResetRequestSerializer(serializers.Serializer):
+    """Solicitud del enlace de recuperación: solo el correo.
+
+    No valida que la cuenta exista a propósito — ver
+    `services.password_reset_solicitar`.
+    """
+
+    email = serializers.EmailField()
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    """Restablecimiento con el token del enlace.
+
+    La contraseña se valida contra el usuario **dueño del token** (no contra el
+    que envía la petición, que es anónimo), para que las reglas de similitud con
+    el correo y el nombre se apliquen de verdad. La vista inyecta ese usuario en
+    el contexto.
+    """
+
+    token = serializers.CharField(write_only=True, trim_whitespace=True)
+    new_password = serializers.CharField(
+        write_only=True, trim_whitespace=False, max_length=128,
+    )
+
+    def validate_new_password(self, value: str) -> str:
+        validate_password(value, user=self.context.get('target_user'))
+        return value
+
+
 class UserSerializer(serializers.ModelSerializer):
     """Representación pública/segura de un usuario (solo lectura)."""
 
     full_name = serializers.CharField(read_only=True)
     role_display = serializers.CharField(source='get_role_display', read_only=True)
+    sesion = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -69,8 +99,27 @@ class UserSerializer(serializers.ModelSerializer):
             'is_active',
             'date_joined',
             'accent',
+            'sesion',
         )
         read_only_fields = fields
+
+    def get_sesion(self, obj: User) -> dict | None:
+        """Sesión abierta del usuario, o None.
+
+        Se lee de la relación ya precargada (`user_list()` hace select_related)
+        en lugar de consultar: si no, la tabla de usuarios haría una consulta
+        por fila. Tampoco borra las caducadas aquí — una lectura no debería
+        escribir; de eso se encarga `sesion_vigente` en el login.
+        """
+        sesion = getattr(obj, 'sesion_activa', None)
+        if sesion is None or sesion.vencida:
+            return None
+        return {
+            'dispositivo': sesion.descripcion_dispositivo,
+            'iniciada': sesion.creada,
+            'ultima_actividad': sesion.ultima_actividad,
+            'ip': sesion.ip,
+        }
 
 
 class AdminUserCreateSerializer(serializers.ModelSerializer):

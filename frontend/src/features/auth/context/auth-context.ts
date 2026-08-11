@@ -12,6 +12,8 @@ export interface AuthContextValue {
   logout: () => void
   /** Vuelve a leer el perfil desde la API (p. ej. tras editarlo). */
   refreshUser: () => Promise<void>
+  /** Minutos de inactividad tras los que se cierra la sesión (los fija el backend). */
+  inactividadMin: number
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null)

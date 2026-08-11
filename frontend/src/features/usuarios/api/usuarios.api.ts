@@ -43,4 +43,15 @@ export const usuariosApi = {
       method: 'PATCH',
       body: JSON.stringify(data),
     }),
+
+  /**
+   * Cierra a la fuerza la sesión abierta de un usuario. Con la sesión única,
+   * quien cierra el navegador sin salir queda bloqueado hasta que su sesión
+   * caduca; esto lo desbloquea al momento.
+   */
+  cerrarSesion: (id: string) =>
+    apiFetch<{ detail: string; cerrada: boolean }>(
+      `/api/usuarios/${id}/cerrar-sesion/`,
+      { method: 'POST' },
+    ),
 }

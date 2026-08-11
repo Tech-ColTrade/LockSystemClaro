@@ -104,6 +104,8 @@ export interface EnrolarEstadoResult {
 export interface BulkSyncItemRecord {
   id: number
   mac_address: string
+  /** Serial del televisor. Vacío si el equipo fue eliminado después del lote. */
+  serial_number: string
   inhabilitar: boolean
   estado: 'pendiente' | 'ok' | 'error'
   mensaje: string
