@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 
+from televisores.cambios import registrar_cambios, snapshot
 from televisores.models import Televisor
 from users.permissions import CanOperate
 from televisores.portal.client import (
@@ -94,6 +95,25 @@ class TelevisorViewSet(viewsets.ModelViewSet):
             return [permissions.IsAuthenticated(), CanOperate()]
         return [permissions.IsAuthenticated()]
 
+    def update(self, request, *args, **kwargs):
+        """Edición individual, dejando constancia en el historial de cambios.
+
+        Los valores previos se leen ANTES de guardar; después ya no hay forma de
+        saber qué había. Se registra fuera del serializer para que la auditoría
+        no dependa de por dónde entren los datos.
+        """
+        antes = snapshot(self.get_object())
+        respuesta = super().update(request, *args, **kwargs)
+
+        televisor = self.get_object()
+        registrar_cambios(
+            televisor=televisor,
+            antes=antes,
+            usuario=request.user,
+            ip=client_ip(request),
+        )
+        return respuesta
+
     @action(
         detail=False,
         methods=['post'],
@@ -107,7 +127,12 @@ class TelevisorViewSet(viewsets.ModelViewSet):
                 {'detail': 'Debes adjuntar un archivo en el campo "archivo".'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        resultado = importar_televisores(archivo.name, archivo.read())
+        resultado = importar_televisores(
+            archivo.name,
+            archivo.read(),
+            usuario=request.user,
+            ip=client_ip(request),
+        )
         return Response(resultado, status=status.HTTP_200_OK)
 
     # ------------------------------------------------------------------

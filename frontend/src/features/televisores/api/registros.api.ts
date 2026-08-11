@@ -1,6 +1,8 @@
 import { apiFetch } from '@/lib/http/client'
 import type { Paginated } from '@/shared/types'
 import type {
+  CambioRow,
+  CampoCambio,
   PincodeRow,
   SincronizacionRow,
 } from '@/features/televisores/types'
@@ -11,11 +13,29 @@ export interface RangoFiltro {
   hasta?: string
 }
 
+/** Filtros del historial de cambios: rango, texto libre y campo. */
+export interface CambiosFiltro extends RangoFiltro {
+  /** Busca a la vez en serial, MAC y número de crédito. */
+  buscar?: string
+  campo?: CampoCambio | ''
+}
+
 export function queryRango(filtro: RangoFiltro = {}, page = 1): string {
   const p = new URLSearchParams()
   if (page > 1) p.set('page', String(page))
   if (filtro.desde) p.set('desde', filtro.desde)
   if (filtro.hasta) p.set('hasta', filtro.hasta)
+  const s = p.toString()
+  return s ? `?${s}` : ''
+}
+
+export function queryCambios(filtro: CambiosFiltro = {}, page = 1): string {
+  const p = new URLSearchParams()
+  if (page > 1) p.set('page', String(page))
+  if (filtro.desde) p.set('desde', filtro.desde)
+  if (filtro.hasta) p.set('hasta', filtro.hasta)
+  if (filtro.buscar) p.set('buscar', filtro.buscar)
+  if (filtro.campo) p.set('campo', filtro.campo)
   const s = p.toString()
   return s ? `?${s}` : ''
 }
@@ -28,4 +48,8 @@ export const registrosApi = {
 
   pincodes: (page = 1, filtro: RangoFiltro = {}) =>
     apiFetch<Paginated<PincodeRow>>(`/api/pincodes/${queryRango(filtro, page)}`),
+
+  /** Historial de cambios en los datos de los televisores. */
+  cambios: (page = 1, filtro: CambiosFiltro = {}) =>
+    apiFetch<Paginated<CambioRow>>(`/api/cambios/${queryCambios(filtro, page)}`),
 }

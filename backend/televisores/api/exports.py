@@ -58,6 +58,53 @@ def _nombre_archivo(base: str, televisor=None, desde=None, hasta=None) -> str:
     return '_'.join(partes) + '.xlsx'
 
 
+def exportar_cambios(queryset, desde=None, hasta=None) -> HttpResponse:
+    """Historial de cambios en los datos de los televisores.
+
+    Recibe el queryset ya filtrado por la vista, en lugar de volver a aplicar
+    los filtros aquí: así el Excel trae exactamente las filas que el usuario
+    tiene en pantalla, sin posibilidad de que ambos criterios se separen.
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Historial'
+    ws.append([
+        'Fecha',
+        'Número de serial',
+        'Dirección MAC',
+        'N° Crédito',
+        'Campo modificado',
+        'Valor anterior',
+        'Valor nuevo',
+        'Origen',
+        'Usuario',
+    ])
+    _estilar_encabezado(ws)
+
+    for c in queryset:
+        usuario = '—'
+        if c.usuario_id:
+            usuario = c.usuario.get_full_name() or c.usuario.email
+        ws.append([
+            timezone.localtime(c.creado).strftime('%Y-%m-%d %H:%M:%S'),
+            c.serial_number or '',
+            c.mac_address or '',
+            c.numero_credito or '',
+            c.get_campo_display(),
+            # Un valor vacío significa que el campo no tenía nada antes; el
+            # guion lo deja explícito en vez de parecer una celda olvidada.
+            c.valor_anterior or '—',
+            c.valor_nuevo or '—',
+            c.get_origen_display(),
+            usuario,
+        ])
+
+    for col, ancho in zip('ABCDEFGHI', (20, 20, 20, 16, 18, 22, 22, 12, 28)):
+        ws.column_dimensions[col].width = ancho
+
+    return _respuesta_xlsx(wb, _nombre_archivo('historial_cambios', None, desde, hasta))
+
+
 def exportar_sincronizaciones(
     desde: str | None = None,
     hasta: str | None = None,

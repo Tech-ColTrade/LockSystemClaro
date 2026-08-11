@@ -3,6 +3,7 @@ from rest_framework import serializers
 from televisores.models import (
     BulkSyncItem,
     BulkSyncJob,
+    CambioTelevisor,
     PinCodeUsado,
     SyncJob,
     Televisor,
@@ -38,6 +39,37 @@ class TelevisorSerializer(serializers.ModelSerializer):
         if qs.exists():
             raise serializers.ValidationError('Ya existe un televisor con esta MAC.')
         return value
+
+
+class CambioTelevisorSerializer(serializers.ModelSerializer):
+    """Fila del historial de cambios, lista para pintar en la tabla."""
+
+    campo_display = serializers.CharField(source='get_campo_display', read_only=True)
+    origen_display = serializers.CharField(source='get_origen_display', read_only=True)
+    usuario = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CambioTelevisor
+        fields = [
+            'id',
+            'creado',
+            'mac_address',
+            'serial_number',
+            'numero_credito',
+            'campo',
+            'campo_display',
+            'valor_anterior',
+            'valor_nuevo',
+            'origen',
+            'origen_display',
+            'usuario',
+        ]
+
+    def get_usuario(self, obj) -> str:
+        """Nombre completo, o el correo si no lo tiene, o '—' si se borró."""
+        if not obj.usuario_id:
+            return '—'
+        return obj.usuario.get_full_name() or obj.usuario.email
 
 
 class PinCodeUsadoSerializer(serializers.ModelSerializer):

@@ -85,6 +85,82 @@ class Televisor(models.Model):
         return hoy - dias if self.inhabilitado else hoy + dias
 
 
+class CambioTelevisor(models.Model):
+    """Bitácora de cambios en los DATOS de un televisor (no en su estado).
+
+    Registra quién cambió el serial, la MAC o el número de crédito, cuándo y
+    desde dónde — tanto en la edición uno a uno como en la carga masiva.
+
+    Qué NO registra: los cambios de habilitado/inhabilitado. Esos ya tienen su
+    propio historial en Sincronizaciones, y mezclarlos aquí haría que el ruido
+    de la operación diaria tapara las correcciones de datos, que es lo que esta
+    pantalla existe para auditar.
+
+    **Una fila por campo cambiado.** Si en una edición se tocan el serial y el
+    crédito, quedan dos filas. Así la tabla puede mostrar «campo, antes,
+    después» sin desdoblar nada al leer, y filtrar por campo es un WHERE.
+    """
+
+    MAC = 'mac_address'
+    SERIAL = 'serial_number'
+    CREDITO = 'numero_credito'
+    CAMPOS = [
+        (MAC, 'Dirección MAC'),
+        (SERIAL, 'Número de serie'),
+        (CREDITO, 'Número de crédito'),
+    ]
+
+    INDIVIDUAL = 'individual'
+    MASIVO = 'masivo'
+    ORIGENES = [(INDIVIDUAL, 'Individual'), (MASIVO, 'Masivo')]
+
+    televisor = models.ForeignKey(
+        Televisor,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='cambios',
+    )
+
+    # Copia de los identificadores tal como quedaron tras el cambio. Se guardan
+    # en la fila (y no se leen del televisor) por dos razones: el televisor
+    # puede borrarse después y dejar la fila huérfana, y filtrar por serial o
+    # crédito se resuelve sin join.
+    mac_address = models.CharField('Dirección MAC', max_length=50, blank=True, default='')
+    serial_number = models.CharField('Número de serie', max_length=50, blank=True, default='')
+    numero_credito = models.CharField('Número de crédito', max_length=60, blank=True, default='')
+
+    campo = models.CharField('Campo', max_length=20, choices=CAMPOS)
+    valor_anterior = models.CharField('Valor anterior', max_length=120, blank=True, default='')
+    valor_nuevo = models.CharField('Valor nuevo', max_length=120, blank=True, default='')
+
+    origen = models.CharField('Origen', max_length=12, choices=ORIGENES, default=INDIVIDUAL)
+
+    # Auditoría: quién y desde dónde.
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='cambios_televisor',
+    )
+    ip = models.GenericIPAddressField('IP', null=True, blank=True)
+    # db_index: es la columna del `ordering` y la del filtro por rango.
+    creado = models.DateTimeField('Fecha', auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = 'cambio de televisor'
+        verbose_name_plural = 'historial de cambios'
+        ordering = ['-creado', '-id']
+        indexes = [
+            models.Index(fields=['serial_number']),
+            models.Index(fields=['mac_address']),
+        ]
+
+    def __str__(self):
+        return f'{self.serial_number or self.mac_address} · {self.get_campo_display()}'
+
+
 class SyncJob(models.Model):
     """Trabajo de sincronización en segundo plano de UN televisor con el portal.
 

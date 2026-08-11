@@ -2,6 +2,7 @@ import type { ComponentType } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
   ChevronsUpDown,
+  History,
   KeyRound,
   LayoutDashboard,
   LogOut,
@@ -47,6 +48,7 @@ const navItems: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/televisores', label: 'Televisores', icon: Monitor },
   { to: '/sincronizaciones', label: 'Sincronizaciones', icon: RefreshCw },
+  { to: '/historial', label: 'Historial', icon: History },
   { to: '/pincodes', label: 'Códigos Pin', icon: KeyRound },
   { to: '/usuarios', label: 'Usuarios', icon: Users, adminOnly: true },
 ]

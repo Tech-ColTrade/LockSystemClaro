@@ -39,6 +39,27 @@ export interface SyncJobRecord {
 }
 
 // --- Listados del sidebar ---
+
+/** Campos del televisor que audita el historial de cambios. */
+export type CampoCambio = 'mac_address' | 'serial_number' | 'numero_credito'
+
+/** Fila del historial: UN campo que cambió en UN televisor. */
+export interface CambioRow {
+  id: number
+  creado: string
+  mac_address: string
+  serial_number: string
+  numero_credito: string
+  campo: CampoCambio
+  /** Nombre legible del campo ('Número de serie'). */
+  campo_display: string
+  valor_anterior: string
+  valor_nuevo: string
+  origen: 'individual' | 'masivo'
+  origen_display: string
+  usuario: string
+}
+
 export interface SincronizacionRow {
   fecha: string
   mac_address: string

@@ -1,5 +1,10 @@
 import { apiDownload, apiFetch } from '@/lib/http/client'
-import { queryRango, type RangoFiltro } from '@/features/televisores/api/registros.api'
+import {
+  queryCambios,
+  queryRango,
+  type CambiosFiltro,
+  type RangoFiltro,
+} from '@/features/televisores/api/registros.api'
 import type { Paginated } from '@/shared/types'
 import type {
   BulkSyncStatus,
@@ -173,6 +178,14 @@ export const televisoresApi = {
     apiDownload(
       `/api/televisores/exportar-sincronizaciones/${queryRango(filtro)}`,
       'sincronizaciones.xlsx',
+    ),
+
+  // Se mandan los mismos filtros que la tabla: el Excel contiene exactamente
+  // las filas que el usuario está viendo.
+  exportarCambios: (filtro: CambiosFiltro = {}) =>
+    apiDownload(
+      `/api/cambios/exportar/${queryCambios(filtro)}`,
+      'historial_cambios.xlsx',
     ),
 
   // Se manda el mismo rango que filtra la tabla: el Excel contiene exactamente

@@ -23,6 +23,7 @@ import { TelevisorSincronizacionesPage } from '@/features/televisores/pages/Tele
 import { TelevisorPincodesUsadosPage } from '@/features/televisores/pages/TelevisorPincodesUsadosPage'
 import { EnrolarEstadoPage } from '@/features/televisores/pages/EnrolarEstadoPage'
 import { SincronizacionesPage } from '@/features/sincronizaciones/pages/SincronizacionesPage'
+import { HistorialPage } from '@/features/historial/pages/HistorialPage'
 import { PincodesPage } from '@/features/pincodes/pages/PincodesPage'
 import { UsuariosPage } from '@/features/usuarios/pages/UsuariosPage'
 import { UsuarioFormPage } from '@/features/usuarios/pages/UsuarioFormPage'
@@ -91,6 +92,12 @@ export const router = createBrowserRouter([
             path: '/pincodes',
             element: <PincodesPage />,
             handle: { breadcrumb: 'Códigos Pin' },
+          },
+          {
+            // Auditoría de cambios en los datos del televisor (no de estado).
+            path: '/historial',
+            element: <HistorialPage />,
+            handle: { breadcrumb: 'Historial' },
           },
           {
             // Carga diferida: recharts (la gráfica del modo agrupado) solo se

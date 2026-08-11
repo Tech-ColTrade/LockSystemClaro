@@ -8,10 +8,16 @@ from rest_framework.generics import ListAPIView
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.views import APIView
 
-from televisores.models import BulkSyncItem, BulkSyncJob, PinCodeUsado, SyncJob
+from televisores.models import (
+    BulkSyncItem,
+    BulkSyncJob,
+    CambioTelevisor,
+    PinCodeUsado,
+    SyncJob,
+)
 
-from .filtros import filtrar_por_fecha, filtrar_sincronizaciones
-from .serializers import PinCodeUsadoSerializer
+from .filtros import filtrar_cambios, filtrar_por_fecha, filtrar_sincronizaciones
+from .serializers import CambioTelevisorSerializer, PinCodeUsadoSerializer
 
 
 def _resultado_syncjob(estado: str) -> str:
@@ -134,6 +140,48 @@ class SincronizacionesView(APIView):
         # materializan las 10 filas de la página.
         page = paginator.paginate_queryset(qs, request, view=self)
         return paginator.get_paginated_response([_fila(r) for r in page])
+
+
+def qs_cambios(request):
+    """Queryset del historial ya filtrado con los parámetros de la petición.
+
+    Vive aquí para que la vista y la exportación a Excel compartan filtro: es lo
+    que garantiza que el archivo traiga exactamente lo que se ve en pantalla.
+    """
+    return filtrar_cambios(
+        # select_related: la tabla muestra el nombre del usuario en cada fila.
+        CambioTelevisor.objects.select_related('usuario'),
+        desde=request.query_params.get('desde'),
+        hasta=request.query_params.get('hasta'),
+        buscar=request.query_params.get('buscar'),
+        campo=request.query_params.get('campo'),
+    )
+
+
+class CambiosTelevisorView(ListAPIView):
+    """Historial de cambios en los datos de los televisores.
+
+    Solo lectura: estas filas las escribe el propio sistema al editar un
+    televisor, nunca un usuario.
+    """
+
+    serializer_class = CambioTelevisorSerializer
+
+    def get_queryset(self):
+        return qs_cambios(self.request)
+
+
+class CambiosTelevisorExportView(APIView):
+    """Excel del historial de cambios, con los mismos filtros de la pantalla."""
+
+    def get(self, request):
+        from .exports import exportar_cambios
+
+        return exportar_cambios(
+            qs_cambios(request),
+            desde=request.query_params.get('desde'),
+            hasta=request.query_params.get('hasta'),
+        )
 
 
 class PincodesUsadosView(ListAPIView):

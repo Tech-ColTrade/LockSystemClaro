@@ -13,6 +13,7 @@ import io
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
+from televisores.cambios import registrar_cambios_masivos, snapshot
 from televisores.models import Televisor
 
 COLUMNAS = ('mac_address', 'serial_number', 'numero_credito')
@@ -58,12 +59,17 @@ def leer_filas(nombre: str, data: bytes) -> list[list[str]]:
     return _filas_csv(data)
 
 
-def importar_televisores(nombre: str, data: bytes) -> dict:
+def importar_televisores(
+    nombre: str, data: bytes, *, usuario=None, ip: str | None = None
+) -> dict:
     """Crea/actualiza televisores desde el contenido de un archivo.
 
     Una consulta para leer los existentes y dos escrituras por lotes, en vez de
     un get_or_create + save por fila: el coste deja de crecer con el número de
     round-trips a la base de datos.
+
+    `usuario` e `ip` alimentan el historial de cambios: sin ellos las filas se
+    guardan igual, pero sin saber quién las hizo.
 
     Devuelve {'creados', 'actualizados', 'errores': [str, ...]}.
     """
@@ -111,6 +117,11 @@ def importar_televisores(nombre: str, data: bytes) -> dict:
         for tv in Televisor.objects.filter(mac_address__in=orden)
     }
 
+    # Foto de los datos actuales antes de tocar nada: es lo que se compara para
+    # armar el historial de cambios. Después de mutar los objetos ya no habría
+    # forma de saber qué había.
+    previos = {mac: snapshot(tv) for mac, tv in existentes.items()}
+
     nuevos: list[Televisor] = []
     actualizar: list[Televisor] = []
 
@@ -150,5 +161,17 @@ def importar_televisores(nombre: str, data: bytes) -> dict:
             Televisor.objects.bulk_create(nuevos, batch_size=LOTE)
         if actualizar and campos_editables:
             Televisor.objects.bulk_update(actualizar, campos_editables, batch_size=LOTE)
+            # Dentro de la transacción: si la escritura de televisores se
+            # revierte, el historial no puede quedar afirmando un cambio que no
+            # llegó a ocurrir.
+            registrar_cambios_masivos(
+                pares=[
+                    (tv, previos[tv.mac_address.upper()])
+                    for tv in actualizar
+                    if tv.mac_address.upper() in previos
+                ],
+                usuario=usuario,
+                ip=ip,
+            )
 
     return {'creados': len(nuevos), 'actualizados': len(actualizar), 'errores': errores}

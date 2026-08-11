@@ -35,6 +35,32 @@ def filtrar_por_fecha(queryset, desde: str | None, hasta: str | None, campo: str
     return queryset
 
 
+def filtrar_cambios(queryset, desde=None, hasta=None, buscar=None, campo=None):
+    """Filtros del historial de cambios: rango de fechas, texto y campo.
+
+    `buscar` mira en serial, MAC y número de crédito a la vez, que es como el
+    usuario piensa el dato que tiene a mano ("busco este equipo") sin tener que
+    acertar en qué casilla va cada cosa. Es el mismo criterio del buscador del
+    listado de televisores.
+    """
+    queryset = filtrar_por_fecha(queryset, desde, hasta, campo='creado')
+
+    texto = (buscar or '').strip()
+    if texto:
+        from django.db.models import Q
+
+        queryset = queryset.filter(
+            Q(serial_number__icontains=texto)
+            | Q(mac_address__icontains=texto)
+            | Q(numero_credito__icontains=texto)
+        )
+
+    if campo:
+        queryset = queryset.filter(campo=campo)
+
+    return queryset
+
+
 def filtrar_sincronizaciones(syncs, items, desde=None, hasta=None):
     """Acota los dos orígenes del historial de sincronizaciones al mismo rango.
 
