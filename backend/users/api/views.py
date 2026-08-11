@@ -5,6 +5,7 @@ import logging
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from rest_framework import filters, generics, permissions, status
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
@@ -339,6 +340,12 @@ class PasswordResetValidateView(APIView):
             # es de su cuenta, sin exponerlo entero a quien intercepte la URL.
             'email': _email_ofuscado(registro.user.email),
             'expira_en': registro.expira_en,
+            # Tiempo RELATIVO para la cuenta atrás de la interfaz. Con la fecha
+            # absoluta, un navegador con el reloj desfasado daría el enlace por
+            # vencido nada más abrirlo; con segundos no hay reloj que valga.
+            'segundos_restantes': max(
+                0, int((registro.expira_en - timezone.now()).total_seconds())
+            ),
         })
 
 

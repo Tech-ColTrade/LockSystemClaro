@@ -18,6 +18,12 @@ export interface ResetTokenInfo {
   /** Correo parcialmente oculto (`da*****@gmail.com`), para confirmar la cuenta. */
   email: string
   expira_en: string
+  /**
+   * Segundos que le quedan al enlace, medidos por el servidor. La cuenta atrás
+   * usa esto y no `expira_en`: comparar una fecha absoluta contra el reloj del
+   * equipo daba el enlace por vencido si ese reloj iba adelantado.
+   */
+  segundos_restantes: number
 }
 
 /** Por qué un enlace de recuperación no sirve. */

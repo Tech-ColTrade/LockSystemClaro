@@ -7,7 +7,7 @@
 // La cuenta atrás no es decorativa: el enlace muere a los 10 minutos, así que
 // mostrar cuánto queda evita que alguien lo descubra al pulsar "Guardar".
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -51,23 +51,46 @@ const MOTIVOS: Record<string, string> = {
     'Este enlace no es válido. Puede estar incompleto o haber sido reemplazado por uno más reciente.',
 }
 
-/** mm:ss restantes hasta `hasta`; null cuando ya pasó. */
-function usarCuentaAtras(hasta: string | undefined): string | null {
-  const [restante, setRestante] = useState<number>(() =>
-    hasta ? Math.max(0, new Date(hasta).getTime() - Date.now()) : 0,
-  )
+/** Estado de la cuenta atrás del enlace. */
+type CuentaAtras =
+  /** Todavía no hay fecha (el token se está validando). */
+  | { fase: 'sin-datos' }
+  | { fase: 'corriendo'; texto: string }
+  | { fase: 'agotada' }
+
+/**
+ * Cuenta atrás a partir de los SEGUNDOS que informa el servidor, no de una
+ * fecha absoluta: así el reloj del equipo del usuario —que puede estar
+ * desfasado— no decide si el enlace sigue vivo.
+ *
+ * Distinguir 'sin-datos' de 'agotada' es lo que impide el fallo que tenía esta
+ * pantalla: mientras el token se validaba no había cuenta atrás, ese hueco se
+ * leía como "ya venció" y el enlace se invalidaba solo nada más abrirlo.
+ */
+function usarCuentaAtras(segundosIniciales: number | undefined): CuentaAtras {
+  // Momento en que empezó a contar; en una ref para no reiniciar el conteo en
+  // cada render.
+  const inicio = useRef<number>(0)
+  const [transcurridos, setTranscurridos] = useState(0)
 
   useEffect(() => {
-    if (!hasta) return
+    if (segundosIniciales === undefined) return
+    inicio.current = Date.now()
+    setTranscurridos(0)
     const id = setInterval(() => {
-      setRestante(Math.max(0, new Date(hasta).getTime() - Date.now()))
+      setTranscurridos(Math.floor((Date.now() - inicio.current) / 1000))
     }, 1000)
     return () => clearInterval(id)
-  }, [hasta])
+  }, [segundosIniciales])
 
-  if (!hasta || restante <= 0) return null
-  const total = Math.floor(restante / 1000)
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
+  if (segundosIniciales === undefined) return { fase: 'sin-datos' }
+
+  const restante = segundosIniciales - transcurridos
+  if (restante <= 0) return { fase: 'agotada' }
+  return {
+    fase: 'corriendo',
+    texto: `${Math.floor(restante / 60)}:${String(restante % 60).padStart(2, '0')}`,
+  }
 }
 
 export function ResetPasswordPage() {
@@ -106,17 +129,18 @@ export function ResetPasswordPage() {
     void validar()
   }, [validar])
 
-  const restante = usarCuentaAtras(
-    estado.fase === 'valido' ? estado.info.expira_en : undefined,
+  const cuenta = usarCuentaAtras(
+    estado.fase === 'valido' ? estado.info.segundos_restantes : undefined,
   )
 
   // El enlace venció mientras la pestaña estaba abierta: no dejamos enviar un
-  // formulario que el servidor va a rechazar.
+  // formulario que el servidor va a rechazar. Solo cuenta 'agotada': el estado
+  // 'sin-datos' significa "aún no lo sé", no "se acabó".
   useEffect(() => {
-    if (estado.fase === 'valido' && restante === null) {
+    if (estado.fase === 'valido' && cuenta.fase === 'agotada') {
       setEstado({ fase: 'invalido', motivo: MOTIVOS.vencido })
     }
-  }, [estado.fase, restante])
+  }, [estado.fase, cuenta.fase])
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -227,13 +251,13 @@ export function ResetPasswordPage() {
             </CardHeader>
             <CardContent>
               <form onSubmit={onSubmit} className="flex flex-col gap-5" noValidate>
-                {restante && (
+                {cuenta.fase === 'corriendo' && (
                   <div className="flex items-center gap-2 rounded-lg bg-secondary px-3 py-2 text-sm text-muted-foreground">
                     <Clock className="size-4 shrink-0" />
                     <span>
                       El enlace vence en{' '}
                       <span className="font-medium tabular-nums text-foreground">
-                        {restante}
+                        {cuenta.texto}
                       </span>
                     </span>
                   </div>
