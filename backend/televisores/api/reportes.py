@@ -57,10 +57,14 @@ class Filtros:
 
 
 def televisores_filtrados(f: Filtros | None = None):
-    """Televisores acotados por serial y estado actual (no por fecha: el estado
-    es el vigente, no tiene una fecha de corte)."""
+    """Televisores acotados por fecha de registro, serial y estado actual (el
+    estado es el vigente: no tiene fecha de corte, sólo el registro la tiene)."""
     f = f or Filtros()
     qs = Televisor.objects.all()
+    if f.desde:
+        qs = qs.filter(created_at__date__gte=f.desde)
+    if f.hasta:
+        qs = qs.filter(created_at__date__lte=f.hasta)
     if f.serial:
         qs = qs.filter(serial_number__icontains=f.serial)
     if f.estado == 'inhabilitado':

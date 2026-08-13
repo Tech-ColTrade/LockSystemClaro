@@ -339,6 +339,27 @@ WHALETV_LOCK_API = {
     'TIMEOUT': int(os.getenv('WHALETV_LOCK_API_TIMEOUT', '15')),
 }
 
+# ---------------------------------------------------------------------------
+# WhaleTV Device Lock *Portal* API (Open API) — firma HMAC-SHA1
+# ---------------------------------------------------------------------------
+# OJO: es un servicio DISTINTO de WHALETV_LOCK_API de arriba, con credenciales
+# propias. Es la API oficial del mismo portal web que hoy raspamos con Selenium
+# (lockservice.whaletv.com), así que vive en el entorno correcto y —a diferencia
+# de la Device Lock API— sí puede BLOQUEAR. Doc: "Device Lock Portal API 1.0.1".
+#
+# BRAND_ID es obligatorio en todos sus endpoints. Mientras no lo sepamos queda
+# vacío y `manage.py probar_portal_open` lo descubre por tanteo.
+WHALETV_LOCK_PORTAL_API = {
+    'HOST': os.getenv(
+        'WHALETV_LOCK_PORTAL_API_HOST', 'acc-lockservice.whaletv.com'
+    ),
+    'ACCESS_KEY': os.getenv('WHALETV_LOCK_PORTAL_API_ACCESS_KEY', ''),
+    'SECRET_KEY': os.getenv('WHALETV_LOCK_PORTAL_API_SECRET_KEY', ''),
+    'BRAND_ID': os.getenv('WHALETV_LOCK_PORTAL_API_BRAND_ID', ''),
+    'API_BASE': os.getenv('WHALETV_LOCK_PORTAL_API_BASE', '/lock-portal/open/v1'),
+    'TIMEOUT': int(os.getenv('WHALETV_LOCK_PORTAL_API_TIMEOUT', '20')),
+}
+
 # Minutos sin latido tras los que se da por muerto un job de sincronización
 # (su hilo se fue con el proceso). Ver televisores/watchdog.py. Holgado a
 # propósito: un sync individual tarda ~40 s y un lote late en cada televisor.
