@@ -9,10 +9,16 @@ from __future__ import annotations
 
 import logging
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
 from .emails import enviar_recuperacion_password
-from .models import PasswordResetToken, Role, SesionActiva, User
+from .models import (
+    PasswordResetToken,
+    Role,
+    SesionActiva,
+    User,
+    identidad_navegador,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,14 +82,29 @@ def user_update(*, user: User, data: dict) -> User:
 
 
 # ---------------------------------------------------------------------------
-# Sesión única por usuario
+# Sesión única por usuario Y por navegador
 # ---------------------------------------------------------------------------
+# La regla tiene dos caras y las dos se comprueban al abrir sesión:
+#   1. Una cuenta = un navegador. Si entraste en Chrome, no puedes entrar con la
+#      misma cuenta en Edge  ->  SesionEnUso.
+#   2. Un navegador = una cuenta. Si en ese Chrome ya hay una sesión abierta de
+#      otra persona, esa otra cuenta no puede entrar ahí  ->  NavegadorEnUso.
+# En ambos casos el bloqueo dura lo que dure la sesión: al cerrarla (o al
+# caducar por inactividad) el navegador y la cuenta quedan libres otra vez.
 class SesionEnUso(Exception):
     """Ya hay una sesión abierta para esa cuenta en otro navegador/equipo."""
 
     def __init__(self, sesion: SesionActiva) -> None:
         self.sesion = sesion
         super().__init__('Ya hay una sesión activa para esta cuenta.')
+
+
+class NavegadorEnUso(Exception):
+    """Este navegador ya tiene abierta la sesión de OTRA cuenta."""
+
+    def __init__(self, sesion: SesionActiva) -> None:
+        self.sesion = sesion
+        super().__init__('Este navegador ya tiene una sesión abierta.')
 
 
 def sesion_vigente(user: User) -> SesionActiva | None:
@@ -102,11 +123,31 @@ def sesion_vigente(user: User) -> SesionActiva | None:
     return sesion
 
 
+def sesion_de_navegador(navegador_id: str | None) -> SesionActiva | None:
+    """Sesión abierta en ese navegador, o None si no hay o si ya caducó.
+
+    Igual que `sesion_vigente`, limpia la caducada de paso: un navegador donde
+    alguien cerró la ventana sin salir se libera solo al pasar la ventana de
+    inactividad.
+    """
+    if not navegador_id:
+        return None
+    sesion = SesionActiva.objects.select_related('user').filter(
+        navegador_id=navegador_id
+    ).first()
+    if sesion is None:
+        return None
+    if sesion.vencida:
+        sesion.delete()
+        return None
+    return sesion
+
+
 @transaction.atomic
 def sesion_abrir(
     *, user: User, ip: str | None = None, user_agent: str = ''
 ) -> SesionActiva:
-    """Abre la sesión del usuario. Falla si ya tiene una vigente.
+    """Abre la sesión del usuario. Falla si la cuenta o el navegador están en uso.
 
     `select_for_update` sobre el usuario serializa dos logins simultáneos: sin
     él, ambos podrían comprobar "no hay sesión" a la vez y el segundo se
@@ -118,9 +159,30 @@ def sesion_abrir(
     if existente is not None:
         raise SesionEnUso(existente)
 
-    return SesionActiva.objects.create(
-        user=user, ip=ip, user_agent=(user_agent or '')[:500]
-    )
+    # La cuenta está libre; falta que lo esté el navegador. Solo estorba si la
+    # sesión que hay ahí es de OTRA persona: si fuera del mismo usuario, la
+    # comprobación anterior ya habría cortado.
+    navegador_id = identidad_navegador(ip=ip, user_agent=user_agent)
+    ocupante = sesion_de_navegador(navegador_id)
+    if ocupante is not None:
+        raise NavegadorEnUso(ocupante)
+
+    try:
+        # `atomic` anidado: crea un savepoint, así un choque contra la
+        # restricción no deja la transacción entera rota y podemos consultar
+        # quién ganó la carrera.
+        with transaction.atomic():
+            return SesionActiva.objects.create(
+                user=user,
+                ip=ip,
+                user_agent=(user_agent or '')[:500],
+                navegador_id=navegador_id,
+            )
+    except IntegrityError:
+        ocupante = sesion_de_navegador(navegador_id)
+        if ocupante is None:
+            raise
+        raise NavegadorEnUso(ocupante) from None
 
 
 def sesion_latir(*, user: User, sid: str | None) -> bool:

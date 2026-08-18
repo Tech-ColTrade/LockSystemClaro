@@ -19,8 +19,37 @@ from users.services import user_create, user_update
 User = get_user_model()
 
 
+def campo_nombre(**kwargs) -> serializers.CharField:
+    """Nombres/apellidos tal y como los acepta la API: nunca vacíos.
+
+    El modelo los deja `blank=True` (hay cuentas creadas antes de esta regla, y
+    el superusuario de consola puede no tener nombre), pero por la API no se
+    puede guardar uno en blanco: QA reportó que desde el perfil se podían borrar
+    los apellidos y guardar, dejando la cuenta a medio identificar en toda la
+    app — tabla de usuarios, auditoría, historial.
+
+    `CharField` recorta los espacios antes de validar, así que "   " también se
+    rechaza en lugar de colarse como un nombre válido.
+    """
+    return serializers.CharField(
+        max_length=150,
+        allow_blank=False,
+        error_messages={
+            'blank': 'Este campo es obligatorio.',
+            'required': 'Este campo es obligatorio.',
+        },
+        **kwargs,
+    )
+
+
 class MeUpdateSerializer(serializers.ModelSerializer):
     """Edición del propio perfil: datos personales y preferencias (sin rol/permisos)."""
+
+    # `required=False` porque el PATCH es parcial: guardar solo el color de
+    # acento no debe obligar a reenviar el nombre. Pero si el campo viene, viene
+    # con contenido.
+    first_name = campo_nombre(required=False)
+    last_name = campo_nombre(required=False)
 
     class Meta:
         model = User
@@ -132,15 +161,13 @@ class AdminUserCreateSerializer(serializers.ModelSerializer):
         max_length=128,
     )
     role = serializers.ChoiceField(choices=Role.choices, default=Role.CONSULTA)
+    first_name = campo_nombre()
+    last_name = campo_nombre()
 
     class Meta:
         model = User
         fields = ('id', 'email', 'password', 'first_name', 'last_name', 'role')
         read_only_fields = ('id',)
-        extra_kwargs = {
-            'first_name': {'required': False},
-            'last_name': {'required': False},
-        }
 
     def validate_email(self, value: str) -> str:
         value = value.strip().lower()
@@ -165,6 +192,10 @@ class AdminUserUpdateSerializer(serializers.ModelSerializer):
     """Edición de usuario por un administrador (nombre, rol, activo)."""
 
     role = serializers.ChoiceField(choices=Role.choices, required=False)
+    # Parciales por la misma razón que en el perfil: el interruptor de "activo"
+    # de la tabla manda solo `is_active`.
+    first_name = campo_nombre(required=False)
+    last_name = campo_nombre(required=False)
 
     class Meta:
         model = User

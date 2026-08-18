@@ -14,10 +14,7 @@ import {
   CheckCircle2,
   CircleAlert,
   Clock,
-  Eye,
-  EyeOff,
   Loader2,
-  Lock,
   ShieldX,
 } from 'lucide-react'
 import { authApi, type ResetTokenInfo } from '@/features/auth/api/auth.api'
@@ -32,8 +29,8 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { PasswordInput } from '@/components/ui/password-input'
 
 type Estado =
   | { fase: 'validando' }
@@ -101,7 +98,6 @@ export function ResetPasswordPage() {
   const [estado, setEstado] = useState<Estado>({ fase: 'validando' })
   const [password, setPassword] = useState('')
   const [confirmacion, setConfirmacion] = useState('')
-  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -272,29 +268,16 @@ export function ResetPasswordPage() {
 
                 <div className="grid gap-2">
                   <Label htmlFor="password">Nueva contraseña</Label>
-                  <div className="relative">
-                    <Lock className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      id="password"
-                      type={showPassword ? 'text' : 'password'}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      required
-                      autoFocus
-                      placeholder="••••••••"
-                      autoComplete="new-password"
-                      className="pr-10 pl-9"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((v) => !v)}
-                      aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
-                      aria-pressed={showPassword}
-                      className="absolute top-1/2 right-2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md bg-transparent text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:text-foreground"
-                    >
-                      {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                    </button>
-                  </div>
+                  <PasswordInput
+                    id="password"
+                    conCandado
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    autoFocus
+                    placeholder="••••••••"
+                    autoComplete="new-password"
+                  />
                   <p className="text-xs text-muted-foreground">
                     Mínimo 10 caracteres. Evita datos personales y contraseñas
                     comunes.
@@ -303,19 +286,15 @@ export function ResetPasswordPage() {
 
                 <div className="grid gap-2">
                   <Label htmlFor="confirmacion">Confirmar contraseña</Label>
-                  <div className="relative">
-                    <Lock className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      id="confirmacion"
-                      type={showPassword ? 'text' : 'password'}
-                      value={confirmacion}
-                      onChange={(e) => setConfirmacion(e.target.value)}
-                      required
-                      placeholder="••••••••"
-                      autoComplete="new-password"
-                      className="pl-9"
-                    />
-                  </div>
+                  <PasswordInput
+                    id="confirmacion"
+                    conCandado
+                    value={confirmacion}
+                    onChange={(e) => setConfirmacion(e.target.value)}
+                    required
+                    placeholder="••••••••"
+                    autoComplete="new-password"
+                  />
                 </div>
 
                 <Button type="submit" disabled={submitting} className="mt-1 w-full">

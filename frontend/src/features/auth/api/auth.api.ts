@@ -34,7 +34,14 @@ export const authApi = {
   config: (): Promise<AppConfig> =>
     apiFetch<AppConfig>(config.endpoints.config, { auth: false }),
 
-  /** Inicia sesión con email + contraseña y devuelve el perfil del usuario. */
+  /**
+   * Inicia sesión con email + contraseña y devuelve el perfil del usuario.
+   *
+   * Puede fallar con 409: la cuenta ya tiene sesión en otro sitio
+   * (`sesion_activa`) o este navegador ya tiene abierta otra cuenta
+   * (`navegador_ocupado`). Al navegador lo identifica el servidor por IP +
+   * navegador, sin nada que el cliente tenga que enviar.
+   */
   async login(email: string, password: string): Promise<User> {
     const tokens = await apiFetch<AuthTokens>(config.endpoints.login, {
       method: 'POST',

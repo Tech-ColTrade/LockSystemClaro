@@ -24,9 +24,11 @@ from users.authentication import (
     TOKEN_VERSION_CLAIM,
     token_esta_revocado,
 )
+from users.models import familia_navegador
 from users.permissions import IsAdminRole
 from users.selectors import user_list
 from users.services import (
+    NavegadorEnUso,
     SesionEnUso,
     password_reset_buscar,
     password_reset_confirmar,
@@ -59,6 +61,7 @@ def client_ip(request) -> str | None:
     if xff:
         return xff.split(',')[0].strip()
     return request.META.get('REMOTE_ADDR')
+
 
 # NOTA: no existe una vista de auto-registro público. Las cuentas las crea un
 # Administrador (`AdminUserListCreateView`, POST /api/usuarios/). Exponer un alta
@@ -116,9 +119,12 @@ def emitir_par_de_tokens(user, *, sid) -> dict[str, str]:
 class LoginView(TokenObtainPairView):
     """Obtiene el par de tokens (access/refresh) con email + password.
 
-    **Sesión única**: si la cuenta ya tiene una sesión abierta en otro navegador
-    o equipo, el inicio se rechaza con 409 en vez de abrir una segunda. La
-    sesión anterior no se toca: quien está trabajando no pierde lo que hace.
+    **Sesión única**, en las dos direcciones, y ambas responden 409:
+    - `sesion_activa`: la cuenta ya está abierta en otro navegador o equipo.
+    - `navegador_ocupado`: este navegador ya tiene abierta otra cuenta.
+
+    En ninguno de los dos casos se toca la sesión que ya existe: quien está
+    trabajando no pierde lo que hace.
 
     Que la única forma de desbloquearse sea cerrar sesión (o esperar a que
     caduque por inactividad) es la intención de la regla, no un descuido. Un
@@ -141,6 +147,7 @@ class LoginView(TokenObtainPairView):
             raise InvalidToken(str(exc)) from exc
 
         user = serializer.user
+        minutos = settings.SESSION_INACTIVITY_MINUTOS
 
         try:
             sesion = sesion_abrir(
@@ -150,7 +157,6 @@ class LoginView(TokenObtainPairView):
             )
         except SesionEnUso as exc:
             activa = exc.sesion
-            minutos = settings.SESSION_INACTIVITY_MINUTOS
             return Response(
                 {
                     'detail': (
@@ -164,6 +170,29 @@ class LoginView(TokenObtainPairView):
                     'ultima_actividad': activa.ultima_actividad,
                     # Para que la interfaz pueda decir cuánto falta si el otro
                     # equipo simplemente se quedó abierto y sin usar.
+                    'expira_por_inactividad_minutos': minutos,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        except NavegadorEnUso as exc:
+            activa = exc.sesion
+            # El correo va ofuscado: quien está frente a esta pantalla no es
+            # necesariamente el dueño de la sesión abierta, y basta con que
+            # reconozca la cuenta para saber a quién pedirle que salga.
+            return Response(
+                {
+                    'detail': (
+                        f'Este equipo ya tiene una sesión abierta en '
+                        f'{familia_navegador(activa.user_agent) or "este navegador"} '
+                        f'con la cuenta {_email_ofuscado(activa.user.email)}. '
+                        f'Cierra esa sesión antes de entrar con otra cuenta, o '
+                        f'entra desde otro navegador.'
+                    ),
+                    'code': 'navegador_ocupado',
+                    'navegador': familia_navegador(activa.user_agent),
+                    'cuenta': _email_ofuscado(activa.user.email),
+                    'iniciada': activa.creada,
+                    'ultima_actividad': activa.ultima_actividad,
                     'expira_por_inactividad_minutos': minutos,
                 },
                 status=status.HTTP_409_CONFLICT,

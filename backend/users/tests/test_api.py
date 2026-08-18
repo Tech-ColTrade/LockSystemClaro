@@ -1,8 +1,14 @@
+from datetime import timedelta
+
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
+
+from users.models import SesionActiva
 
 User = get_user_model()
 
@@ -54,7 +60,13 @@ class AdminUserCreateApiTests(APITestCase):
         self.client.force_authenticate(user=self.admin)
         resp = self.client.post(
             self.url,
-            {'email': 'nuevo@correo.com', 'password': STRONG_PASSWORD, 'role': 'operador'},
+            {
+                'email': 'nuevo@correo.com',
+                'password': STRONG_PASSWORD,
+                'first_name': 'Ada',
+                'last_name': 'Lovelace',
+                'role': 'operador',
+            },
             format='json',
         )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
@@ -80,6 +92,8 @@ class AdminUserCreateApiTests(APITestCase):
             {
                 'email': 'attacker@correo.com',
                 'password': STRONG_PASSWORD,
+                'first_name': 'Mallory',
+                'last_name': 'Atacante',
                 'is_staff': True,
                 'is_superuser': True,
             },
@@ -89,6 +103,19 @@ class AdminUserCreateApiTests(APITestCase):
         user = User.objects.get(email='attacker@correo.com')
         self.assertFalse(user.is_staff)
         self.assertFalse(user.is_superuser)
+
+    def test_no_crea_usuario_sin_nombre_ni_apellido(self):
+        """Misma regla que en el perfil: una cuenta no nace a medio identificar."""
+        self.client.force_authenticate(user=self.admin)
+        resp = self.client.post(
+            self.url,
+            {'email': 'anonimo@correo.com', 'password': STRONG_PASSWORD},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('first_name', resp.data)
+        self.assertIn('last_name', resp.data)
+        self.assertFalse(User.objects.filter(email='anonimo@correo.com').exists())
 
     def test_email_duplicado_rechazado(self):
         self.client.force_authenticate(user=self.admin)
@@ -125,6 +152,106 @@ class TokenApiTests(APITestCase):
             format='json',
         )
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+class SesionPorNavegadorApiTests(APITestCase):
+    """Un navegador = una cuenta (la otra mitad de la sesión única).
+
+    El navegador se identifica por IP + familia (Chrome/Edge/…), no por nada que
+    el cliente guarde: así dos PERFILES del mismo Chrome, o una ventana de
+    incógnito, cuentan como el mismo navegador — que es justo el caso que hay
+    que impedir.
+    """
+
+    BASE = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+    CHROME = BASE + '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    EDGE = CHROME + ' Edg/120.0.0.0'
+    EQUIPO = '190.10.20.30'
+    OTRO_EQUIPO = '190.10.20.99'
+
+    def setUp(self):
+        cache.clear()  # aísla el throttle de login (5/min) entre tests
+        self.ana = User.objects.create_user(
+            email='ana@correo.com', password=STRONG_PASSWORD
+        )
+        self.beto = User.objects.create_user(
+            email='beto@correo.com', password=STRONG_PASSWORD
+        )
+
+    def _login(self, email, *, navegador=CHROME, ip=EQUIPO):
+        return self.client.post(
+            reverse('users:token_obtain_pair'),
+            {'email': email, 'password': STRONG_PASSWORD},
+            format='json',
+            HTTP_USER_AGENT=navegador,
+            REMOTE_ADDR=ip,
+        )
+
+    def test_otra_cuenta_en_el_mismo_navegador_es_rechazada(self):
+        self.assertEqual(self._login('ana@correo.com').status_code, 200)
+
+        resp = self._login('beto@correo.com')
+        self.assertEqual(resp.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(resp.data['code'], 'navegador_ocupado')
+        self.assertEqual(resp.data['navegador'], 'Chrome')
+        # El correo del ocupante va ofuscado, no en claro.
+        self.assertNotIn('ana@correo.com', str(resp.data))
+
+    def test_otro_perfil_del_mismo_chrome_tambien_es_rechazado(self):
+        """El caso que motivó la regla: mismo equipo, mismo Chrome, otro perfil.
+
+        Otro perfil de Chrome manda el mismo User-Agent desde la misma IP: para
+        el servidor es indistinguible del primero, y eso es exactamente lo que
+        se busca.
+        """
+        self.assertEqual(self._login('ana@correo.com').status_code, 200)
+
+        resp = self._login('beto@correo.com', navegador=self.CHROME + ' ')
+        self.assertEqual(resp.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(resp.data['code'], 'navegador_ocupado')
+
+    def test_otra_cuenta_en_otro_navegador_si_puede_entrar(self):
+        self.assertEqual(self._login('ana@correo.com').status_code, 200)
+        self.assertEqual(
+            self._login('beto@correo.com', navegador=self.EDGE).status_code, 200
+        )
+
+    def test_otra_cuenta_desde_otro_equipo_si_puede_entrar(self):
+        self.assertEqual(self._login('ana@correo.com').status_code, 200)
+        self.assertEqual(
+            self._login('beto@correo.com', ip=self.OTRO_EQUIPO).status_code, 200
+        )
+
+    def test_la_misma_cuenta_en_otro_navegador_sigue_bloqueada(self):
+        self.assertEqual(self._login('ana@correo.com').status_code, 200)
+
+        resp = self._login('ana@correo.com', navegador=self.EDGE)
+        self.assertEqual(resp.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(resp.data['code'], 'sesion_activa')
+
+    def test_el_navegador_se_libera_al_cerrar_sesion(self):
+        access = self._login('ana@correo.com').data['access']
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access}')
+        self.client.post(reverse('users:logout'))
+        self.client.credentials()
+
+        self.assertEqual(self._login('beto@correo.com').status_code, 200)
+
+    def test_el_navegador_se_libera_cuando_la_sesion_caduca(self):
+        self._login('ana@correo.com')
+
+        # `update` esquiva el auto_now: simula la falta de actividad.
+        vencida = timezone.now() - timedelta(
+            minutes=settings.SESSION_INACTIVITY_MINUTOS + 1
+        )
+        SesionActiva.objects.filter(user=self.ana).update(ultima_actividad=vencida)
+
+        self.assertEqual(self._login('beto@correo.com').status_code, 200)
+
+    def test_sin_navegador_reconocible_no_se_bloquea_nada(self):
+        """Un cliente que no es un navegador (curl, un script) no queda fuera."""
+        self.assertEqual(self._login('ana@correo.com', navegador='curl/8.0').status_code, 200)
+        self.assertEqual(self._login('beto@correo.com', navegador='curl/8.0').status_code, 200)
 
 
 class LogoutRevocationApiTests(APITestCase):
@@ -206,6 +333,35 @@ class MeUpdateApiTests(APITestCase):
         self.user.refresh_from_db()
         self.assertEqual(self.user.role, 'consulta')
         self.assertFalse(self.user.is_staff)
+
+    def test_no_puede_dejar_el_apellido_vacio(self):
+        """QA: desde el perfil se guardaba el apellido en blanco."""
+        self.user.first_name = 'Ada'
+        self.user.last_name = 'Lovelace'
+        self.user.save()
+
+        resp = self.client.patch(self.url, {'last_name': ''}, format='json')
+
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('last_name', resp.data)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.last_name, 'Lovelace')
+
+    def test_no_puede_dejar_el_nombre_vacio(self):
+        resp = self.client.patch(self.url, {'first_name': ''}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('first_name', resp.data)
+
+    def test_solo_espacios_tampoco_cuenta_como_nombre(self):
+        resp = self.client.patch(self.url, {'last_name': '   '}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_guardar_solo_el_acento_no_exige_reenviar_el_nombre(self):
+        """El PATCH es parcial: el selector de color manda solo `accent`."""
+        resp = self.client.patch(self.url, {'accent': 'rosa'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.accent, 'rosa')
 
 
 class ChangePasswordApiTests(APITestCase):

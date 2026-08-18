@@ -172,10 +172,36 @@ class SesionActiva(models.Model):
     ip = models.GenericIPAddressField(_('IP'), null=True, blank=True)
     user_agent = models.TextField(_('navegador'), blank=True)
 
+    # Identidad del navegador: 'IP|Chrome'. Es la otra mitad de la regla — una
+    # cuenta no puede abrirse en dos navegadores, y un navegador no puede tener
+    # abiertas dos cuentas. La calcula el servidor (ver `identidad_navegador`),
+    # nunca el cliente.
+    #
+    # Por qué IP y no algo guardado en el navegador: Chrome aísla el
+    # almacenamiento entre perfiles y en incógnito, así que un id de cliente
+    # dejaba pasar "otro perfil del mismo Chrome" — justo lo que hay que
+    # impedir. La IP es lo único que el servidor ve en común entre ellos.
+    #
+    # Vacío = no se pudo determinar (sin IP o sin navegador reconocible). En ese
+    # caso no bloquea nada: preferimos dejar entrar a inventarnos una identidad.
+    navegador_id = models.CharField(
+        _('id de navegador'), max_length=64, blank=True, db_index=True
+    )
+
     class Meta:
         verbose_name = _('sesión activa')
         verbose_name_plural = _('sesiones activas')
         ordering = ['-ultima_actividad']
+        constraints = [
+            # Unicidad en la base, no solo en el código: dos logins simultáneos
+            # desde el mismo navegador no pueden crear dos sesiones. Parcial,
+            # porque el vacío (identidad desconocida) debe poder repetirse.
+            models.UniqueConstraint(
+                fields=['navegador_id'],
+                condition=~models.Q(navegador_id=''),
+                name='sesion_unica_por_navegador',
+            ),
+        ]
 
     def __str__(self) -> str:
         return f'{self.user.email} · {self.descripcion_dispositivo}'
@@ -210,6 +236,29 @@ _SISTEMAS = (
     ('Mac OS X', 'macOS'),
     ('Linux', 'Linux'),
 )
+
+
+def familia_navegador(user_agent: str) -> str:
+    """'Chrome', 'Edge', … a partir del User-Agent. '' si no se reconoce."""
+    return next((nombre for marca, nombre in _NAVEGADORES if marca in user_agent), '')
+
+
+def identidad_navegador(*, ip: str | None, user_agent: str) -> str:
+    """Identifica "este navegador en este equipo" como 'IP|Chrome'.
+
+    A propósito NO distingue perfiles ni ventanas de incógnito: para la regla de
+    negocio, dos perfiles del mismo Chrome en el mismo equipo son el mismo
+    navegador. Sí distingue Chrome de Edge, que es lo que el usuario espera
+    poder usar como salida ("entra desde otro navegador").
+
+    Devuelve '' si falta cualquiera de las dos piezas: sin identidad fiable la
+    regla no se aplica, en vez de bloquear a ciegas a todo el que comparta un
+    dato a medias.
+    """
+    familia = familia_navegador(user_agent or '')
+    if not ip or not familia:
+        return ''
+    return f'{ip}|{familia}'[:64]
 
 
 def describir_user_agent(user_agent: str) -> str:

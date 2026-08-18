@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { PasswordInput } from '@/components/ui/password-input'
 import {
   Select,
   SelectContent,
@@ -102,11 +103,22 @@ export function UsuarioFormPage() {
     e.preventDefault()
     setFieldErrors({})
     setGeneral(null)
+
+    // Nombres y apellidos son obligatorios, igual que en el perfil propio: una
+    // cuenta sin nombre queda a medio identificar en la tabla y en la auditoría.
+    const faltan: Record<string, string> = {}
+    if (!firstName.trim()) faltan.first_name = 'Los nombres son obligatorios.'
+    if (!lastName.trim()) faltan.last_name = 'Los apellidos son obligatorios.'
+    if (Object.keys(faltan).length > 0) {
+      setFieldErrors(faltan)
+      return
+    }
+
     try {
       if (isEdit) {
         await updateMut.mutateAsync({
-          first_name: firstName,
-          last_name: lastName,
+          first_name: firstName.trim(),
+          last_name: lastName.trim(),
           role,
           is_active: isActive,
         })
@@ -114,8 +126,8 @@ export function UsuarioFormPage() {
         await createMut.mutateAsync({
           email,
           password,
-          first_name: firstName,
-          last_name: lastName,
+          first_name: firstName.trim(),
+          last_name: lastName.trim(),
           role,
         })
       }
@@ -181,9 +193,8 @@ export function UsuarioFormPage() {
             {!isEdit && (
               <div className="grid gap-2">
                 <Label htmlFor="password">Contraseña</Label>
-                <Input
+                <PasswordInput
                   id="password"
-                  type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Mínimo 10 caracteres"
@@ -201,6 +212,8 @@ export function UsuarioFormPage() {
                   id="first_name"
                   value={firstName}
                   onChange={(e) => setFirstName(e.target.value)}
+                  required
+                  aria-invalid={Boolean(fieldErrors.first_name)}
                 />
                 <FieldError msg={fieldErrors.first_name} />
               </div>
@@ -210,6 +223,8 @@ export function UsuarioFormPage() {
                   id="last_name"
                   value={lastName}
                   onChange={(e) => setLastName(e.target.value)}
+                  required
+                  aria-invalid={Boolean(fieldErrors.last_name)}
                 />
                 <FieldError msg={fieldErrors.last_name} />
               </div>

@@ -30,6 +30,7 @@ import {
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 
@@ -101,8 +102,23 @@ function PerfilPanel() {
     setErrors({})
     setGeneral(null)
     setOk(false)
+    // Nombres y apellidos son obligatorios (misma regla que aplica el backend).
+    // Se avisa aquí para no gastar un viaje al servidor en decir lo evidente.
+    const faltan: Record<string, string> = {}
+    if (!firstName.trim()) faltan.first_name = 'Los nombres son obligatorios.'
+    if (!lastName.trim()) faltan.last_name = 'Los apellidos son obligatorios.'
+    if (Object.keys(faltan).length > 0) {
+      setErrors(faltan)
+      setSaving(false)
+      return
+    }
+
     try {
-      await settingsApi.updateProfile({ first_name: firstName, last_name: lastName })
+      await settingsApi.updateProfile({
+        // Recortados: un nombre de puros espacios no es un nombre.
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
+      })
       await refreshUser()
       setOk(true)
     } catch (err) {
@@ -140,6 +156,8 @@ function PerfilPanel() {
                 id="first_name"
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
+                required
+                aria-invalid={Boolean(errors.first_name)}
               />
               <FieldError msg={errors.first_name} />
             </div>
@@ -149,6 +167,8 @@ function PerfilPanel() {
                 id="last_name"
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
+                required
+                aria-invalid={Boolean(errors.last_name)}
               />
               <FieldError msg={errors.last_name} />
             </div>
@@ -223,9 +243,8 @@ function SeguridadPanel() {
 
           <div className="grid gap-2">
             <Label htmlFor="current_password">Contraseña actual</Label>
-            <Input
+            <PasswordInput
               id="current_password"
-              type="password"
               value={current}
               onChange={(e) => setCurrent(e.target.value)}
               autoComplete="current-password"
@@ -236,9 +255,8 @@ function SeguridadPanel() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
               <Label htmlFor="new_password">Nueva contraseña</Label>
-              <Input
+              <PasswordInput
                 id="new_password"
-                type="password"
                 value={next}
                 onChange={(e) => setNext(e.target.value)}
                 autoComplete="new-password"
@@ -248,9 +266,8 @@ function SeguridadPanel() {
             </div>
             <div className="grid gap-2">
               <Label htmlFor="confirm_password">Confirmar contraseña</Label>
-              <Input
+              <PasswordInput
                 id="confirm_password"
-                type="password"
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
                 autoComplete="new-password"
