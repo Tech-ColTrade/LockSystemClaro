@@ -31,6 +31,9 @@ export const dashboardApi = {
   exportEstatus: (filtros: DashboardFiltros = {}) =>
     apiDownload(`${EXPORT}/estatus/${qs(filtros)}`, 'estatus_inhabilitacion.xlsx'),
 
+  exportEstatusFinanciado: (filtros: DashboardFiltros = {}) =>
+    apiDownload(`${EXPORT}/estatus-financiado/${qs(filtros)}`, 'estatus_por_financiado.xlsx'),
+
   exportEfectividad: (filtros: DashboardFiltros = {}) =>
     apiDownload(`${EXPORT}/efectividad/${qs(filtros)}`, 'efectividad_inhabilitacion.xlsx'),
 

@@ -50,20 +50,80 @@ def _hoja(titulo: str, encabezados: list[str]):
     return wb, ws
 
 
+def _hoja_extra(wb: Workbook, titulo: str, encabezados: list[str]):
+    """Segunda (o siguiente) hoja dentro de un libro ya creado con `_hoja`."""
+    ws = wb.create_sheet(titulo[:31])
+    ws.append(encabezados)
+    _estilar_encabezado(ws)
+    return ws
+
+
 # ---------------------------------------------------------------------------
-# 1. Estatus de inhabilitación (discriminando producto financiado)
+# 1. Estatus de inhabilitación (gráfico de dona: habilitados vs inhabilitados)
 # ---------------------------------------------------------------------------
 def exportar_estatus_inhabilitacion(f: Filtros | None = None):
+    tvs = list(televisores_filtrados(f))
+    inhabilitados = sum(1 for tv in tvs if tv.inhabilitado)
+    habilitados = len(tvs) - inhabilitados
+
+    wb, ws = _hoja('Resumen', ['Estado', 'Televisores', '% del total'])
+    for nombre, cant in (('Habilitados', habilitados), ('Inhabilitados', inhabilitados)):
+        pct = round(cant * 100 / len(tvs), 1) if tvs else 0
+        ws.append([nombre, cant, pct])
+    ws.append(['Total', len(tvs), 100 if tvs else 0])
+    _anchos(ws, {'A': 18, 'B': 14, 'C': 14})
+
+    det = _hoja_extra(wb, 'Detalle', ['Dirección MAC', 'Serial', 'Estado'])
+    for tv in tvs:
+        det.append([
+            tv.mac_address,
+            tv.serial_number,
+            'Inhabilitado' if tv.inhabilitado else 'Habilitado',
+        ])
+    _anchos(det, {'A': 20, 'B': 20, 'C': 14})
+    return _respuesta_xlsx(wb, 'estatus_inhabilitacion.xlsx')
+
+
+# ---------------------------------------------------------------------------
+# 1b. Estatus por producto financiado (gráfico de barras)
+#     Financiado = el televisor tiene número de crédito.
+# ---------------------------------------------------------------------------
+def exportar_estatus_financiado(f: Filtros | None = None):
+    tvs = list(televisores_filtrados(f))
+    matriz = {
+        'Inhabilitados': {'fin': 0, 'no_fin': 0},
+        'Habilitados': {'fin': 0, 'no_fin': 0},
+    }
+    for tv in tvs:
+        estado = 'Inhabilitados' if tv.inhabilitado else 'Habilitados'
+        matriz[estado]['fin' if (tv.numero_credito or '').strip() else 'no_fin'] += 1
+
     wb, ws = _hoja(
-        'Estatus',
+        'Resumen',
+        ['Estado', 'Producto financiado', 'No financiado', 'Total'],
+    )
+    for estado, d in matriz.items():
+        ws.append([estado, d['fin'], d['no_fin'], d['fin'] + d['no_fin']])
+    fin = sum(d['fin'] for d in matriz.values())
+    no_fin = sum(d['no_fin'] for d in matriz.values())
+    ws.append(['Total', fin, no_fin, fin + no_fin])
+    _anchos(ws, {'A': 18, 'B': 20, 'C': 18, 'D': 12})
+
+    det = _hoja_extra(
+        wb,
+        'Detalle',
         ['Dirección MAC', 'Serial', 'Nº Crédito', 'Producto financiado', 'Estado'],
     )
-    for tv in televisores_filtrados(f):
-        financiado = 'Sí' if (tv.numero_credito or '').strip() else 'No'
-        estado = 'Inhabilitado' if tv.inhabilitado else 'Habilitado'
-        ws.append([tv.mac_address, tv.serial_number, tv.numero_credito, financiado, estado])
-    _anchos(ws, {'A': 20, 'B': 20, 'C': 18, 'D': 18, 'E': 14})
-    return _respuesta_xlsx(wb, 'estatus_inhabilitacion.xlsx')
+    for tv in tvs:
+        det.append([
+            tv.mac_address,
+            tv.serial_number,
+            tv.numero_credito,
+            'Sí' if (tv.numero_credito or '').strip() else 'No',
+            'Inhabilitado' if tv.inhabilitado else 'Habilitado',
+        ])
+    _anchos(det, {'A': 20, 'B': 20, 'C': 18, 'D': 18, 'E': 14})
+    return _respuesta_xlsx(wb, 'estatus_por_financiado.xlsx')
 
 
 # ---------------------------------------------------------------------------

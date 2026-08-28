@@ -499,7 +499,7 @@ export function DashboardPage() {
               colors={c}
               tone="sky"
               icon={<I.Bars className="h-5 w-5" />}
-              onExcel={() => descargar(() => dashboardApi.exportEstatus(filtros))}
+              onExcel={() => descargar(() => dashboardApi.exportEstatusFinanciado(filtros))}
             >
               <ResponsiveContainer width="100%" height={260}>
                 <BarChart
@@ -921,7 +921,7 @@ function ReportesDescargables({
           icon={<I.PieIcon className="h-4 w-4" />}
           tone="brand"
           title="Estatus de inhabilitación"
-          desc="Por equipo, discriminando producto financiado."
+          desc="Habilitados vs. inhabilitados, con el detalle por equipo."
         >
           <ExcelBtn onClick={() => descargar(() => dashboardApi.exportEstatus(filtros))} />
         </ReportItem>
@@ -987,15 +987,6 @@ function ReportesDescargables({
           desc="Pines entregados por usuario, según los filtros."
         >
           <ExcelBtn onClick={() => descargar(() => dashboardApi.exportPinesAuditoria(filtros))} />
-        </ReportItem>
-
-        <ReportItem
-          icon={<I.Popup className="h-4 w-4" />}
-          tone="slate"
-          title="Mensajería Pop Up por Serial"
-          desc="Requiere registrar los mensajes pop-up (no disponible aún)."
-        >
-          <ExcelBtn disabled />
         </ReportItem>
       </div>
     </Card>

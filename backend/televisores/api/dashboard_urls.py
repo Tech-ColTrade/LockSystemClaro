@@ -14,6 +14,11 @@ def export_estatus(request):
 
 
 @api_view(['GET'])
+def export_estatus_financiado(request):
+    return rx.exportar_estatus_financiado(Filtros.from_request(request.query_params))
+
+
+@api_view(['GET'])
 def export_efectividad(request):
     return rx.exportar_efectividad(Filtros.from_request(request.query_params))
 
@@ -59,6 +64,7 @@ def export_pines_auditoria(request):
 urlpatterns = [
     path('dashboard/resumen/', DashboardResumenView.as_view(), name='dashboard-resumen'),
     path('dashboard/export/estatus/', export_estatus),
+    path('dashboard/export/estatus-financiado/', export_estatus_financiado),
     path('dashboard/export/efectividad/', export_efectividad),
     path('dashboard/export/tendencia/', export_serie_tiempo),
     path('dashboard/export/historico-serial/', export_historico_serial),
