@@ -12,7 +12,33 @@ from django.db import connections
 from django.utils import timezone
 
 from .models import SyncJob, Televisor
-from .portal.selenium_sync import sincronizar_estado
+from .portal import open_sync
+from .portal.selenium_sync import sincronizar_estado as sincronizar_con_selenium
+
+
+def _sincronizar(tv, progreso):
+    """Aplica el estado: primero por API, y si falla el servicio, por Selenium.
+
+    La API es el camino normal (~3 s en vez de ~15-20 s). Selenium queda de red
+    de seguridad: si la API se cae, o Zeasn vuelve a perder la vinculación de
+    marca, el bloqueo se aplica igual y el operador no se entera.
+
+    No se reintenta cuando el fallo es del dato (MAC que no existe en el
+    portal, parámetros inválidos): Selenium daría el mismo error 15 s después.
+    """
+    if not open_sync.usa_open():
+        return sincronizar_con_selenium(tv, progreso=progreso)
+
+    res, usar_respaldo = open_sync.intentar(tv, progreso=progreso)
+    if res.ok or not usar_respaldo:
+        return res
+
+    fallo_api = res.error
+    res = sincronizar_con_selenium(tv, progreso=progreso)
+    res.log.insert(0, f'La API falló ({fallo_api}). Se reintentó con Selenium.')
+    if not res.ok and res.error:
+        res.error = f'API: {fallo_api} | Selenium: {res.error}'
+    return res
 
 
 def _ejecutar(job_id: int):
@@ -32,7 +58,7 @@ def _ejecutar(job_id: int):
                 porcentaje=pct, actualizado=timezone.now()
             )
 
-        res = sincronizar_estado(tv, progreso=progreso)
+        res = _sincronizar(tv, progreso)
 
         if res.ok and res.aplicado:
             SyncJob.objects.filter(pk=job_id).update(

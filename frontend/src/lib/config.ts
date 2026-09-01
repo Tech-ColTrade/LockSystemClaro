@@ -35,6 +35,8 @@ export const config = {
     me: '/api/me/',
     // Parámetros que define el backend (ventana de inactividad, etc.).
     config: '/api/config/',
+    // Diagnóstico de la integración con WhaleTV (solo correos autorizados).
+    diagnosticoApi: '/api/diagnostico-api/',
   },
 
   /**

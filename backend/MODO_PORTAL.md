@@ -1,5 +1,12 @@
 # Modo portal (sin llaves de la Device Lock API)
 
+> **Ojo: el camino principal ya no es Selenium.** La Device Lock *Portal* API
+> (`lock-portal/open/v1`, ver `Device Lock Portal API 1.0.2-en.pdf`) sí puede
+> bloquear, es ~5 veces más rápida y no necesita navegador, así que **está
+> encendida por defecto**. Selenium quedó como **respaldo automático**: se usa
+> solo cuando la API falla. Todo lo de abajo sigue siendo válido, pero describe
+> el respaldo, no el camino habitual. Ver "Modo open" al final.
+
 > Tema aparte pero relacionado: los jobs que se quedaban colgados en
 > `corriendo` tras un reinicio están resueltos. Ver "Jobs huérfanos" al final.
 
@@ -224,3 +231,130 @@ cierra directamente.
 
 El frontend no necesitó cambios: ya paraba el polling con `finalizado` y muestra
 el error cuando el estado no es `terminado`.
+
+---
+
+# Modo open (Device Lock Portal API)
+
+## Qué es
+
+Un tercer camino, además de `api` y `portal`. Habla con la **Device Lock Portal
+API** (`acc-lockservice.whaletv.com/lock-portal/open/v1`), que es la API oficial
+del mismo portal web que raspamos con Selenium. A diferencia de la Device Lock
+Service API, **sí tiene endpoint de bloqueo**.
+
+Credenciales propias, distintas de las de `WHALETV_LOCK_API`:
+
+```
+WHALETV_LOCK_PORTAL_API_ENABLED=true       # por defecto true
+WHALETV_LOCK_PORTAL_API_HOST=acc-lockservice.whaletv.com
+WHALETV_LOCK_PORTAL_API_ACCESS_KEY=...
+WHALETV_LOCK_PORTAL_API_SECRET_KEY=...
+WHALETV_LOCK_PORTAL_API_BRAND_ID=266602544414330786   # RCA
+```
+
+`open_sync.usa_open()` exige el interruptor **y** las tres credenciales: con la
+configuración a medias es preferible seguir por Selenium que fallar en cada
+operación. `proveedor.modo()` devuelve `open`, y eso viaja en las respuestas.
+Poner el interruptor en `false` fuerza Selenium para todo, sin desplegar código.
+
+## El respaldo automático
+
+Si la API falla, la operación **se reintenta con Selenium sola**: el operador no
+se entera más allá de que tardó más. Lo hacen `sync_runner._sincronizar()` para
+uno y `bulk_sync._respaldo_selenium()` para los lotes (un solo login para todos
+los que quedaron pendientes).
+
+No se reintenta siempre, y esa distinción importa: `open_sync.merece_respaldo()`
+separa los fallos del **servicio** (red caída, 500, 401, la vinculación de marca
+que Zeasn ha perdido dos veces) de los fallos del **dato** (MAC que no está en
+el portal, parámetros inválidos). Los primeros van al respaldo; los segundos no,
+porque Selenium daría el mismo error 15 s más tarde.
+
+Cuando entra el respaldo, el `ResultadoSync` lo deja escrito en su log
+("La API falló (…). Se reintentó con Selenium."), y si fallan los dos caminos el
+error trae ambos motivos.
+
+### Una trampa de `batch-lock`
+
+`POST /devices/batch-lock` **acepta MACs que no existen y responde `true`** sin
+hacer nada (comprobado contra ACC). Por eso `open_sync` comprueba antes que el
+equipo exista —`buscar_por_mac()` en el camino individual, `mapa_macs()` en el
+masivo— y falla si no está. Sin esa comprobación, un MAC mal escrito se
+reportaría como bloqueado sin estarlo, que es peor que un error visible.
+Selenium sí fallaba en ese caso; aquí se mantiene el mismo comportamiento.
+
+## Qué cambia al encenderlo
+
+| Operación | Selenium | Modo open |
+|---|---|---|
+| Leer estado | ~15 s | ~1,4 s |
+| Habilitar / inhabilitar uno | ~15-20 s | **~3 s** |
+| Enrolar Estado (lote) | un login + una visita por TV | **2 llamadas** para todo el lote |
+| Códigos Pin | igual | **igual: sigue por Selenium** |
+| Si la API falla | — | **respaldo automático con Selenium** |
+
+Los Códigos Pin se dejaron a propósito por el camino de siempre. El camino de
+éxito de `POST /devices/pincode` nunca se ha podido probar — hace falta un
+passcode real de la pantalla de un televisor — y estrenarlo sin verificar es
+caro: un pin equivocado es un código quemado y un televisor que no abre.
+
+## Qué NO se tocó
+
+Nada de Selenium. `scraper.py`, `selenium_sync.py`, los `SyncJob`/`BulkSyncJob`,
+el watchdog y el polling del frontend siguen exactamente igual. Apagar el
+interruptor devuelve el comportamiento anterior sin desplegar código.
+
+## Cómo está hecho
+
+```
+televisores/portal/
+├── open_client.py   # los 8 endpoints de la Portal API (firma HMAC-SHA1)
+├── open_sync.py     # sincronizar_estado() y aplicar_lote(), misma forma que selenium_sync
+└── proveedor.py     # _ProveedorOpen para leer estado; los pincodes los delega
+```
+
+`sync_runner._sincronizar()` y `bulk_sync.lanzar_bulk_job()` eligen el camino
+según `open_sync.usa_open()`. `open_sync` devuelve el mismo `ResultadoSync` que
+Selenium, así que los runners no cambiaron de forma.
+
+## La fecha (Next Installment Date)
+
+Se sigue empujando, aunque `batch-lock` ya bloquea solo. Zeasn confirmó que hay
+un **cron que revisa esa fecha y cambia el estado del dispositivo**; como
+`fecha_sincronizar` es pasada al inhabilitar y futura al habilitar, mandarla
+deja al cron de acuerdo con lo que acabamos de hacer, en vez de en contra.
+
+Formato: **`MM/dd/yyyy` con barras**. El ejemplo `"09-27-2026"` de la sección
+4.5 del PDF 1.0.2 está mal; la API rechaza guiones y también el viejo
+`yyyy-MM-dd`, con `270201 nextInstallmentDate format must be MM/dd/yyyy`.
+
+## Verificado (2026-08-31, contra ACC, MAC 3C:BE:8E:BD:EF:01)
+
+- `get_status` por `_ProveedorOpen` → `{lockStatus, paymentStatus, clearStatus}`
+- `sincronizar_estado` inhabilitar → `lockStatus: 1`, confirmado releyendo (2,9 s)
+- `sincronizar_estado` habilitar → `lockStatus: 0`, confirmado releyendo (2,9 s)
+- `aplicar_lote` (camino masivo) → `lockStatus: 1`, confirmado releyendo (2,4 s)
+- Con el interruptor apagado: `modo()` sigue devolviendo `portal` y el runner de
+  lotes sigue siendo el de Selenium.
+- Clasificación de errores: los de servicio (`PortalOpenError`, `…AuthError`,
+  `…BrandNoAutorizado`) piden respaldo; los del dato (`…DispositivoNoExiste`,
+  `…MacInvalida`, `…Parametros`) no.
+- Con la firma rota a propósito → `usar_respaldo=True` en 0,7 s.
+- MAC inexistente → falla con "No se encontró el MAC …", sin llamar a Selenium,
+  y en un lote mezclado el equipo bueno se aplica y el inventado se marca error.
+
+## Un aviso para producción
+
+La vinculación *accessKey → marca* de Zeasn **se ha caído dos veces** tras
+despliegues suyos, y el síntoma es `270202` en todas las llamadas. Si el modo
+open deja de funcionar de golpe, eso es lo primero que hay que mirar:
+
+```
+manage.py probar_portal_open
+```
+
+Si un brandId ajeno responde `no permission for this brand`, la vinculación
+existe. Si responde `no brand authorized for this accessKey`, se cayó otra vez y
+hay que escribirle a Zeasn. Mientras tanto, apagar el interruptor devuelve todo
+a Selenium.

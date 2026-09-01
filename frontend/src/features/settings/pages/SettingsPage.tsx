@@ -9,13 +9,15 @@ import {
   Lock,
   Moon,
   Palette,
+  Stethoscope,
   Sun,
   User,
 } from 'lucide-react'
 import { useAuth } from '@/features/auth/context/auth-context'
-import { isAdmin } from '@/features/auth/permissions'
+import { isAdmin, puedeDiagnosticarApi } from '@/features/auth/permissions'
 import { settingsApi } from '@/features/settings/api/settings.api'
 import { ApiKeysPanel } from '@/features/settings/components/ApiKeysPanel'
+import { DiagnosticoApiPanel } from '@/features/settings/components/DiagnosticoApiPanel'
 import { ACCENTS, useAccent } from '@/features/settings/accent'
 import { useLayoutPrefs } from '@/shared/layout/useLayoutPrefs'
 import { ApiError } from '@/lib/http/errors'
@@ -388,6 +390,9 @@ export function SettingsPage() {
   // Las API keys solo las gestiona el Administrador (o superadmin); el backend
   // es el guardia real (IsAdminRole), aquí solo se oculta el tab.
   const puedeApiKeys = isAdmin(user)
+  // Diagnóstico de la API: soporte, no producto. El backend vuelve a validar
+  // el correo (PuedeDiagnosticar); aquí solo se oculta el tab.
+  const puedeDiagnostico = puedeDiagnosticarApi(user)
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -414,6 +419,11 @@ export function SettingsPage() {
               <KeyRound /> API keys
             </TabsTrigger>
           )}
+          {puedeDiagnostico && (
+            <TabsTrigger value="diagnostico">
+              <Stethoscope /> Estado API
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="perfil">
@@ -428,6 +438,11 @@ export function SettingsPage() {
         {puedeApiKeys && (
           <TabsContent value="apikeys">
             <ApiKeysPanel />
+          </TabsContent>
+        )}
+        {puedeDiagnostico && (
+          <TabsContent value="diagnostico">
+            <DiagnosticoApiPanel />
           </TabsContent>
         )}
       </Tabs>

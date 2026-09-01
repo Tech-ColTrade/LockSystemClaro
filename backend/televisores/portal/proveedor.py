@@ -24,6 +24,7 @@ import contextlib
 from django.conf import settings
 
 from .client import PortalClient
+from .open_sync import usa_open
 from .scraper import PortalScraper
 
 
@@ -34,7 +35,9 @@ def usa_portal() -> bool:
 
 
 def modo() -> str:
-    """'portal' o 'api'. Se expone en las respuestas para no adivinar."""
+    """'open', 'portal' o 'api'. Se expone en las respuestas para no adivinar."""
+    if usa_open():
+        return 'open'
     return 'portal' if usa_portal() else 'api'
 
 
@@ -69,6 +72,54 @@ class _ProveedorApi:
         return grupo['pinCode']
 
 
+class _ProveedorOpen:
+    """Adaptador sobre la Portal API (open_client). Direcciona por MAC.
+
+    Sólo se encarga del ESTADO. Los Códigos Pin se delegan al proveedor de
+    siempre a propósito: el camino de éxito de `POST /devices/pincode` nunca se
+    ha podido probar (hace falta un passcode real de la pantalla de un
+    televisor), y no conviene estrenarlo sin verificar — un pin equivocado es
+    un código quemado y un televisor que no abre.
+    """
+
+    def __init__(self):
+        from .open_client import PortalOpenClient
+
+        self._client = PortalOpenClient()
+        self._respaldo = _ProveedorPortal() if usa_portal() else _ProveedorApi()
+
+    def get_status(self, tv) -> dict:
+        from .client import PortalDispositivoNoExiste
+        from .open_client import PortalOpenError
+        from .open_sync import merece_respaldo
+
+        try:
+            encontrado = self._client.buscar_por_mac(tv.mac_address)
+            if not encontrado:
+                raise PortalDispositivoNoExiste(
+                    f'El MAC {tv.mac_address} no está registrado en el portal WhaleTV.'
+                )
+            detalle = self._client.detalle(encontrado['id'])
+            return {
+                'lockStatus': detalle['status'],
+                'paymentStatus': detalle['paymentStatus'],
+                'clearStatus': detalle['clearStatus'],
+            }
+        except PortalOpenError as e:
+            # Si el servicio falla, se lee por el camino de siempre. Es más
+            # lento, pero el operador ve el estado igual.
+            if not merece_respaldo(e):
+                raise
+            return self._respaldo.get_status(tv)
+
+    # -- Códigos Pin: por el camino de siempre ---------------------------
+    def get_pin_codes(self, tv) -> list[dict]:
+        return self._respaldo.get_pin_codes(tv)
+
+    def usar_pincode(self, tv, passcode: str) -> str:
+        return self._respaldo.usar_pincode(tv, passcode)
+
+
 class _ProveedorPortal:
     """Adaptador sobre PortalScraper. Direcciona por MAC."""
 
@@ -87,6 +138,8 @@ class _ProveedorPortal:
 
 def proveedor():
     """El proveedor que toque según la configuración."""
+    if usa_open():
+        return _ProveedorOpen()
     return _ProveedorPortal() if usa_portal() else _ProveedorApi()
 
 
@@ -95,8 +148,12 @@ def sesion_proveedor():
     """Proveedor para procesos por lotes.
 
     En modo portal abre UN navegador para todo el lote (una sola vez el login)
-    en vez de uno por televisor; en modo API es simplemente el proveedor normal.
+    en vez de uno por televisor; en los modos API es el proveedor normal.
     """
+    if usa_open():
+        yield _ProveedorOpen()
+        return
+
     if not usa_portal():
         yield _ProveedorApi()
         return

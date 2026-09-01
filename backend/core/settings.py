@@ -350,6 +350,12 @@ WHALETV_LOCK_API = {
 # BRAND_ID es obligatorio en todos sus endpoints. Mientras no lo sepamos queda
 # vacío y `manage.py probar_portal_open` lo descubre por tanteo.
 WHALETV_LOCK_PORTAL_API = {
+    # Encendido por defecto: la API es el camino normal porque es ~5 veces más
+    # rápida y no necesita navegador. Selenium queda de respaldo automático para
+    # cuando la API falle (ver televisores/portal/open_sync.py). Ponerlo en
+    # `false` fuerza Selenium para todo, sin desplegar código.
+    # Sólo se activa si además están las tres credenciales; ver `usa_open()`.
+    'ENABLED': os.getenv('WHALETV_LOCK_PORTAL_API_ENABLED', 'true').lower() == 'true',
     'HOST': os.getenv(
         'WHALETV_LOCK_PORTAL_API_HOST', 'acc-lockservice.whaletv.com'
     ),
@@ -358,6 +364,17 @@ WHALETV_LOCK_PORTAL_API = {
     'BRAND_ID': os.getenv('WHALETV_LOCK_PORTAL_API_BRAND_ID', ''),
     'API_BASE': os.getenv('WHALETV_LOCK_PORTAL_API_BASE', '/lock-portal/open/v1'),
     'TIMEOUT': int(os.getenv('WHALETV_LOCK_PORTAL_API_TIMEOUT', '20')),
+}
+
+# Correos con acceso al diagnóstico de la API (pantalla de Configuración).
+# Es una herramienta de soporte, no una función del producto: enseña host,
+# brandId y los mensajes crudos de WhaleTV. Lista separada por comas.
+DIAGNOSTICO_API_EMAILS = {
+    c.strip().lower()
+    for c in os.getenv(
+        'DIAGNOSTICO_API_EMAILS', 'palaciosjulian286@gmail.com'
+    ).split(',')
+    if c.strip()
 }
 
 # Minutos sin latido tras los que se da por muerto un job de sincronización

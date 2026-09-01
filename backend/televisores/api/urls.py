@@ -1,6 +1,7 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
+from .diagnostico import DiagnosticoApiView
 from .registros import (
     CambiosTelevisorExportView,
     CambiosTelevisorView,
@@ -22,6 +23,8 @@ router.register(
 )
 
 urlpatterns = [
+    # Diagnóstico de la integración con WhaleTV (solo correos autorizados).
+    path('diagnostico-api/', DiagnosticoApiView.as_view(), name='diagnostico-api'),
     path('sincronizaciones/', SincronizacionesView.as_view(), name='sincronizaciones'),
     path('pincodes/', PincodesUsadosView.as_view(), name='pincodes'),
     # Historial de cambios en los DATOS del televisor (serial, MAC, crédito).

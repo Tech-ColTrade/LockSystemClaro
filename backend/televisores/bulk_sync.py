@@ -12,7 +12,9 @@ from django.db import connections
 from django.utils import timezone
 
 from .models import BulkSyncItem, BulkSyncJob, Televisor
+from .portal import open_sync
 from .portal.client import PortalError
+from .portal.open_client import PortalOpenError
 from .portal.proveedor import sesion_proveedor
 from .portal.selenium_sync import abrir_sesion, aplicar_en_sesion
 
@@ -92,6 +94,109 @@ def _ejecutar(job_id: int):
         connections.close_all()
 
 
+def _respaldo_selenium(televisores) -> dict:
+    """Aplica por Selenium los televisores que la API no pudo.
+
+    Un solo navegador y un solo login para todos, igual que `_ejecutar`.
+    """
+    from .portal.selenium_sync import ResultadoSync
+
+    resultados = {}
+    driver = None
+    try:
+        driver, wait = abrir_sesion()
+        for tv in televisores:
+            res = aplicar_en_sesion(driver, wait, tv)
+            res.log.insert(0, 'La API falló; se aplicó con Selenium.')
+            resultados[tv.pk] = res
+    except Exception as e:  # noqa: BLE001
+        # Ni la API ni Selenium: se marcan todos con el fallo del respaldo.
+        for tv in televisores:
+            if tv.pk not in resultados:
+                res = ResultadoSync()
+                res.ok = False
+                res.error = f'API y Selenium fallaron. Selenium: {type(e).__name__}: {e}'
+                resultados[tv.pk] = res
+    finally:
+        if driver is not None:
+            try:
+                driver.quit()
+            except Exception:  # noqa: BLE001
+                pass
+    return resultados
+
+
+def _ejecutar_open(job_id: int):
+    """Igual que `_ejecutar` pero por la Portal API: sin navegador y en lote.
+
+    Selenium necesita un login y una visita por televisor; aquí el bloqueo de
+    todo el lote son dos llamadas. Por eso no hay progreso televisor a
+    televisor: se marca 0 y luego el total.
+    """
+    try:
+        BulkSyncJob.objects.filter(pk=job_id).update(
+            estado=BulkSyncJob.CORRIENDO, actualizado=timezone.now()
+        )
+        items = list(
+            BulkSyncItem.objects.filter(job_id=job_id).values_list('pk', 'televisor_id')
+        )
+        if BulkSyncJob.objects.filter(pk=job_id, cancelar_solicitado=True).exists():
+            BulkSyncJob.objects.filter(pk=job_id).update(
+                estado=BulkSyncJob.CANCELADO,
+                terminado_en=timezone.now(),
+                actualizado=timezone.now(),
+            )
+            return
+
+        por_tv = {tv_id: item_pk for item_pk, tv_id in items}
+        televisores = list(Televisor.objects.filter(pk__in=por_tv.keys()))
+        resultados, respaldo = open_sync.aplicar_lote(televisores)
+
+        # Si la API falló para parte del lote, se reintenta esa parte con
+        # Selenium: un solo login para todos los que quedaron pendientes.
+        if respaldo:
+            resultados.update(_respaldo_selenium(respaldo))
+
+        ok = 0
+        err = 0
+        for tv in televisores:
+            res = resultados.get(tv.pk)
+            if res is not None and res.ok and res.aplicado:
+                estado_item = BulkSyncItem.OK
+                mensaje = 'Inhabilitado' if tv.inhabilitado else 'Habilitado'
+                ok += 1
+            else:
+                estado_item = BulkSyncItem.ERROR
+                mensaje = (res.error if res else '') or 'No se pudo aplicar.'
+                err += 1
+            BulkSyncItem.objects.filter(pk=por_tv[tv.pk]).update(
+                estado=estado_item, mensaje=mensaje[:500]
+            )
+
+        BulkSyncJob.objects.filter(pk=job_id).update(
+            estado=BulkSyncJob.TERMINADO,
+            procesados=len(televisores),
+            ok_count=ok,
+            error_count=err,
+            terminado_en=timezone.now(),
+            actualizado=timezone.now(),
+        )
+    except Exception as e:  # noqa: BLE001
+        BulkSyncItem.objects.filter(
+            job_id=job_id, estado=BulkSyncItem.PENDIENTE
+        ).update(estado=BulkSyncItem.ERROR, mensaje=f'{type(e).__name__}: {e}'[:500])
+        BulkSyncJob.objects.filter(pk=job_id).update(
+            estado=BulkSyncJob.ERROR,
+            error_count=BulkSyncItem.objects.filter(
+                job_id=job_id, estado=BulkSyncItem.ERROR
+            ).count(),
+            terminado_en=timezone.now(),
+            actualizado=timezone.now(),
+        )
+    finally:
+        connections.close_all()
+
+
 def _ejecutar_validacion(job_id: int):
     """Validación masiva (dry-run): lee el estado del portal por API y lo compara
     con el estado local. No modifica nada."""
@@ -138,7 +243,7 @@ def _ejecutar_validacion(job_id: int):
                     )
                     ok += 1 if coincide else 0
                     err += 0 if coincide else 1
-                except PortalError as e:
+                except (PortalError, PortalOpenError) as e:
                     BulkSyncItem.objects.filter(pk=item_pk).update(
                         estado=BulkSyncItem.ERROR, mensaje=str(e)[:500]
                     )
@@ -218,6 +323,7 @@ def lanzar_bulk_job(
         )
         for tv in cambiados
     ])
-    hilo = threading.Thread(target=_ejecutar, args=(job.pk,), daemon=True)
+    runner = _ejecutar_open if open_sync.usa_open() else _ejecutar
+    hilo = threading.Thread(target=runner, args=(job.pk,), daemon=True)
     hilo.start()
     return job
