@@ -14,6 +14,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from televisores.cambios import registrar_cambios_masivos, snapshot
+from televisores.validadores import normalizar_serial
 from televisores.models import Televisor
 
 COLUMNAS = ('mac_address', 'serial_number', 'numero_credito')
@@ -151,7 +152,7 @@ def importar_televisores(
     # bulk_create y bulk_update no llaman a save().
     for tv in (*nuevos, *actualizar):
         tv.mac_address = tv.mac_address.strip().upper()
-        tv.serial_number = (tv.serial_number or '').strip()
+        tv.serial_number = normalizar_serial(tv.serial_number)
         tv.eui64 = (tv.eui64 or '').strip().upper()
 
     campos_editables = [c for c in ('serial_number', 'numero_credito') if c in campos]

@@ -46,6 +46,20 @@ function parseErrors(err: unknown): {
   return { fields: {}, general: (err as Error)?.message ?? 'Error inesperado.' }
 }
 
+// Número de serie: solo letras y números. Espejo de `televisores/validadores.py`
+// en el backend, que es el guardia real; aquí se filtra al teclear para que el
+// usuario no llegue a escribir un carácter que luego le rechacen.
+const SERIAL_MIN = 4
+const SERIAL_MAX = 50
+
+/** Quita lo que no sea letra o número y pasa a mayúsculas. */
+function sanitizarSerial(valor: string): string {
+  return valor
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+    .slice(0, SERIAL_MAX)
+}
+
 function FieldError({ msg }: { msg?: string }) {
   if (!msg) return null
   return <p className="text-xs text-destructive">{msg}</p>
@@ -90,6 +104,17 @@ export function TelevisorFormPage() {
     e.preventDefault()
     setFieldErrors({})
     setGeneral(null)
+
+    // El serial es opcional, pero si se escribe algo tiene que ser un serial
+    // de verdad. El backend valida lo mismo; esto solo evita el viaje.
+    const serial = form.serial_number.trim()
+    if (serial && serial.length < SERIAL_MIN) {
+      setFieldErrors({
+        serial_number: `El número de serie debe tener al menos ${SERIAL_MIN} caracteres.`,
+      })
+      return
+    }
+
     try {
       const saved = isEdit
         ? await updateMut.mutateAsync(form)
@@ -179,12 +204,27 @@ export function TelevisorFormPage() {
                 <Input
                   id="serial"
                   className="font-mono"
+                  inputMode="text"
+                  autoCapitalize="characters"
+                  autoComplete="off"
+                  spellCheck={false}
+                  maxLength={SERIAL_MAX}
                   value={form.serial_number}
-                  onChange={(e) => set('serial_number', e.target.value)}
-                  placeholder="B4:04:29:7E:3A:ED"
+                  onChange={(e) =>
+                    set('serial_number', sanitizarSerial(e.target.value))
+                  }
+                  placeholder="ABC123456789"
                   aria-invalid={!!fieldErrors.serial_number}
+                  aria-describedby="serial-ayuda"
                 />
-                <FieldError msg={fieldErrors.serial_number} />
+                {fieldErrors.serial_number ? (
+                  <FieldError msg={fieldErrors.serial_number} />
+                ) : (
+                  <p id="serial-ayuda" className="text-xs text-muted-foreground">
+                    Solo letras y números, sin espacios ni caracteres
+                    especiales. Opcional.
+                  </p>
+                )}
               </div>
 
               <div className="grid gap-2">

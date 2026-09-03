@@ -8,6 +8,7 @@ from televisores.models import (
     SyncJob,
     Televisor,
 )
+from televisores.validadores import SerialInvalido, normalizar_serial
 
 
 class TelevisorSerializer(serializers.ModelSerializer):
@@ -27,6 +28,31 @@ class TelevisorSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'eui64': {'required': False},
         }
+
+    def validate_serial_number(self, value: str) -> str:
+        """Formato del número de serie: solo letras y números.
+
+        Aplica igual al alta y a la edición (el hallazgo EXUS salió por las dos
+        vías). Un serial heredado que no cumpla —quedaron algunos de pruebas—
+        bloquea el guardado hasta corregirlo, que es justo lo que se busca.
+        """
+        try:
+            value = normalizar_serial(value)
+        except SerialInvalido as e:
+            raise serializers.ValidationError(str(e)) from e
+
+        if not value:
+            return value
+        # Unicidad: dos televisores con el mismo serial romperían la carga
+        # masiva por serial y la API de integración, que direccionan por él.
+        qs = Televisor.objects.filter(serial_number__iexact=value)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError(
+                'Ya existe un televisor con este número de serie.'
+            )
+        return value
 
     def validate_mac_address(self, value: str) -> str:
         value = value.strip().upper()

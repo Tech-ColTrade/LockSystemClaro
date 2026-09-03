@@ -2,6 +2,8 @@ from django.conf import settings
 from django.core.validators import RegexValidator
 from django.db import models
 
+from .validadores import validar_serial
+
 # Un número de crédito: solo dígitos, hasta 60 (se guarda como texto porque
 # 60 dígitos no caben en ningún entero de base de datos).
 validar_numero_credito = RegexValidator(
@@ -19,7 +21,11 @@ class Televisor(models.Model):
 
     mac_address = models.CharField('Dirección MAC', max_length=50, unique=True)
     serial_number = models.CharField(
-        'Número de serie', max_length=50, blank=True, default=''
+        'Número de serie',
+        max_length=50,
+        blank=True,
+        default='',
+        validators=[validar_serial],
     )
     numero_credito = models.CharField(
         'Número de crédito',
@@ -54,7 +60,9 @@ class Televisor(models.Model):
         if self.mac_address:
             self.mac_address = self.mac_address.strip().upper()
         if self.serial_number:
-            self.serial_number = self.serial_number.strip()
+            # Mayúsculas como la MAC: así ABC123 y abc123 no entran como dos
+            # equipos distintos.
+            self.serial_number = self.serial_number.strip().upper()
         if self.eui64:
             self.eui64 = self.eui64.strip().upper()
         super().save(*args, **kwargs)
