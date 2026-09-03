@@ -75,11 +75,8 @@ class _ProveedorApi:
 class _ProveedorOpen:
     """Adaptador sobre la Portal API (open_client). Direcciona por MAC.
 
-    Sólo se encarga del ESTADO. Los Códigos Pin se delegan al proveedor de
-    siempre a propósito: el camino de éxito de `POST /devices/pincode` nunca se
-    ha podido probar (hace falta un passcode real de la pantalla de un
-    televisor), y no conviene estrenarlo sin verificar — un pin equivocado es
-    un código quemado y un televisor que no abre.
+    Cubre el estado y los Códigos Pin. Si la API falla por un problema de
+    servicio, cae al proveedor de siempre (Selenium o la otra API).
     """
 
     def __init__(self):
@@ -112,12 +109,61 @@ class _ProveedorOpen:
                 raise
             return self._respaldo.get_status(tv)
 
-    # -- Códigos Pin: por el camino de siempre ---------------------------
+    # -- Códigos Pin -----------------------------------------------------
     def get_pin_codes(self, tv) -> list[dict]:
+        """La Portal API no publica la bolsa de códigos disponibles.
+
+        Solo tiene el historial de los ya entregados y la generación de uno
+        concreto, igual que el portal web. Se delega al proveedor de siempre,
+        que ya sabe responder a esto (en modo portal levanta
+        `PortalCapacidadNoDisponible` sin abrir el navegador).
+        """
         return self._respaldo.get_pin_codes(tv)
 
     def usar_pincode(self, tv, passcode: str) -> str:
-        return self._respaldo.usar_pincode(tv, passcode)
+        """Resuelve el Código de Acceso del televisor a su Código Pin.
+
+        `POST /devices/pincode` hace en ~1 s lo que a Selenium le cuesta ~15 s
+        con el botón "Generate Pin Code", y ya lo deja marcado como usado.
+
+        No hace falta comprobar que el pin devuelto corresponda al passcode
+        pedido, como sí hace el scraper: allí se lee un panel compartido que
+        sobrevive a generaciones anteriores, mientras que aquí la respuesta es
+        del propio passcode que se envió.
+        """
+        from .client import PortalDispositivoNoExiste
+        from .open_client import (
+            PortalOpenDispositivoNoExiste,
+            PortalOpenError,
+            PortalOpenMacInvalida,
+            PortalOpenSinPincode,
+        )
+        from .open_sync import merece_respaldo
+        from .scraper import PortalPasscodeInvalido
+
+        try:
+            pin = self._client.generar_pincode(tv.mac_address, passcode)
+        except PortalOpenSinPincode as e:
+            # 270103: el Código de Acceso no es válido o ya se usó. Es la misma
+            # situación que el "Incorrect passcode" del portal web.
+            raise PortalPasscodeInvalido(
+                'No hay un Código Pin disponible para ese Código de Acceso.'
+            ) from e
+        except PortalOpenDispositivoNoExiste as e:
+            raise PortalDispositivoNoExiste(str(e)) from e
+        except PortalOpenMacInvalida as e:
+            # La vista traduce ValueError a "MAC inválida", igual que cuando
+            # falla la conversión a EUI-64.
+            raise ValueError(str(e)) from e
+        except PortalOpenError as e:
+            if not merece_respaldo(e):
+                raise
+            return self._respaldo.usar_pincode(tv, passcode)
+
+        if not pin:
+            # Respuesta vacía sin error: no se puede entregar un pin en blanco.
+            return self._respaldo.usar_pincode(tv, passcode)
+        return pin
 
 
 class _ProveedorPortal:

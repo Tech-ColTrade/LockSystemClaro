@@ -291,13 +291,38 @@ Selenium sí fallaba en ese caso; aquí se mantiene el mismo comportamiento.
 | Leer estado | ~15 s | ~1,4 s |
 | Habilitar / inhabilitar uno | ~15-20 s | **~3 s** |
 | Enrolar Estado (lote) | un login + una visita por TV | **2 llamadas** para todo el lote |
-| Códigos Pin | igual | **igual: sigue por Selenium** |
+| Resolver un Código de Acceso a su Pin | ~15 s | **~1 s** |
+| Listar la bolsa de códigos | 501 | 501 (la API tampoco la publica) |
 | Si la API falla | — | **respaldo automático con Selenium** |
 
-Los Códigos Pin se dejaron a propósito por el camino de siempre. El camino de
-éxito de `POST /devices/pincode` nunca se ha podido probar — hace falta un
-passcode real de la pantalla de un televisor — y estrenarlo sin verificar es
-caro: un pin equivocado es un código quemado y un televisor que no abre.
+### Códigos Pin
+
+`POST /devices/pincode` hace en ~1 s lo que a Selenium le cuesta ~15 s con el
+botón "Generate Pin Code", y ya deja el código marcado como usado.
+
+**Verificado de verdad el 2026-09-02**: con el televisor `84:93:EC:87:12:71` y
+el Código de Acceso `0492` que mostraba su pantalla, la API devolvió el Pin
+`665489` y el televisor **abrió**. Es la primera vez que se confirma el camino
+de éxito de punta a punta, ni por API ni por Selenium se había podido antes.
+
+Lo que la API **no** tiene es la bolsa de códigos disponibles, igual que el
+portal web: `GET .../pincodes/` sigue respondiendo `501`, ahora al instante y
+sin abrir navegador.
+
+A diferencia del scraper, aquí no hace falta comprobar que el Pin devuelto
+corresponda al Código de Acceso pedido: el portal web publica el resultado en
+un panel compartido que sobrevive a generaciones anteriores (de ahí la
+comprobación de `_pin_generado()`), mientras que la API responde al passcode
+que se le envió en esa misma llamada.
+
+### Reintentos
+
+El portal devuelve `503` a ratos ("upstream connect error… connection refused")
+y se recupera en segundos — pasó dos veces seguidas el 2026-09-02. Por eso
+`open_client._enviar()` reintenta hasta 3 veces los `502/503/504` y las caídas
+de conexión, **pero solo en las lecturas**: `POST /devices/pincode` no es
+idempotente y un segundo intento quemaría otro código. Los fallos de escritura
+suben y los recoge el respaldo con Selenium.
 
 ## Qué NO se tocó
 

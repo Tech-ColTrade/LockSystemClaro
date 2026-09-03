@@ -83,6 +83,12 @@ _ERRORES = {
 # Tope de elementos por lote en import y batch-lock (doc §4.4 y §4.6).
 MAX_LOTE = 1000
 
+# El portal devuelve 503 a ratos ("upstream connect error… connection refused")
+# y se recupera en segundos. Solo se reintentan las LECTURAS; ver `_enviar`.
+HTTP_PASAJEROS = (502, 503, 504)
+REINTENTOS_LECTURA = 3
+ESPERA_REINTENTO = 1.5  # segundos, se multiplica por el número de intento
+
 
 # -- conversiones tolerantes ------------------------------------------------
 # La doc avisa: "Numeric and Boolean values may be serialized as JSON strings".
@@ -146,24 +152,7 @@ class PortalOpenClient:
         if body is not None:
             datos = json.dumps(body).encode('utf-8')
 
-        req = urllib.request.Request(url, data=datos,
-                                     method='POST' if body is not None else 'GET')
-        req.add_header('Authorization', self._authorization(request_uri))
-        req.add_header('Accept', 'application/json')
-        if body is not None:
-            req.add_header('Content-Type', 'application/json')
-
-        try:
-            with urllib.request.urlopen(req, timeout=self.cfg.get('TIMEOUT', 20)) as resp:
-                crudo = resp.read().decode('utf-8')
-        except urllib.error.HTTPError as e:
-            detalle = e.read().decode('utf-8', errors='replace').strip()
-            # Los fallos de autenticación llegan como 401 text/html, no JSON.
-            if e.code == 401:
-                raise PortalOpenAuthError(detalle or 'HTTP 401 sin cuerpo') from e
-            raise PortalOpenError(f'HTTP {e.code} del portal: {detalle}') from e
-        except urllib.error.URLError as e:
-            raise PortalOpenError(f'No se pudo conectar con el portal: {e.reason}') from e
+        crudo = self._enviar(url, request_uri, datos)
 
         try:
             cuerpo = json.loads(crudo)
@@ -175,6 +164,53 @@ class PortalOpenClient:
             mensaje = cuerpo.get('errorMsg') or f'errorCode {codigo}'
             raise _ERRORES.get(codigo, PortalOpenError)(f'{mensaje} ({codigo})')
         return cuerpo
+
+    def _enviar(self, url: str, request_uri: str, datos: bytes | None) -> str:
+        """Manda la petición y devuelve el cuerpo crudo.
+
+        Reintenta los fallos pasajeros (502/503/504 y caídas de conexión) **solo
+        en las lecturas**. El portal de WhaleTV devuelve 503 a ratos —
+        "upstream connect error… connection refused"— y se recupera al segundo o
+        tercer intento. En las escrituras NO se reintenta: `POST /devices/pincode`
+        no es idempotente y un segundo intento quemaría otro código. Para esas,
+        el fallo sube y lo recoge el respaldo con Selenium.
+        """
+        es_lectura = datos is None
+        intentos = REINTENTOS_LECTURA if es_lectura else 1
+
+        for intento in range(1, intentos + 1):
+            # La firma lleva el timestamp dentro, así que se recalcula en cada
+            # intento: reutilizarla acercaría la petición al límite de 1 hora.
+            req = urllib.request.Request(
+                url, data=datos, method='GET' if es_lectura else 'POST'
+            )
+            req.add_header('Authorization', self._authorization(request_uri))
+            req.add_header('Accept', 'application/json')
+            if not es_lectura:
+                req.add_header('Content-Type', 'application/json')
+
+            try:
+                with urllib.request.urlopen(
+                    req, timeout=self.cfg.get('TIMEOUT', 20)
+                ) as resp:
+                    return resp.read().decode('utf-8')
+            except urllib.error.HTTPError as e:
+                detalle = e.read().decode('utf-8', errors='replace').strip()
+                # Los fallos de autenticación llegan como 401 text/html, no JSON.
+                if e.code == 401:
+                    raise PortalOpenAuthError(detalle or 'HTTP 401 sin cuerpo') from e
+                if e.code in HTTP_PASAJEROS and intento < intentos:
+                    time.sleep(ESPERA_REINTENTO * intento)
+                    continue
+                raise PortalOpenError(f'HTTP {e.code} del portal: {detalle}') from e
+            except urllib.error.URLError as e:
+                if intento < intentos:
+                    time.sleep(ESPERA_REINTENTO * intento)
+                    continue
+                raise PortalOpenError(
+                    f'No se pudo conectar con el portal: {e.reason}'
+                ) from e
+
 
     # -- 4.1 listado ----------------------------------------------------
     def listar_dispositivos(self, *, brand_id=None, mac=None, sn=None, status=None,
